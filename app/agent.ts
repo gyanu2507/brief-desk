@@ -42,6 +42,9 @@ export function createDefaultAgent(): BuiltInAgent {
 
   return new BuiltInAgent({
     model: resolveAgentModel("openai:openai/gpt-oss-20b"),
+    // Default maxSteps is 1, which ends the run after the first tool call
+    // with no assistant text. Allow a tool round-trip plus the final reply.
+    maxSteps: 8,
     prompt: [
       "You are brief-desk, an engineering assistant.",
       "Use MCP tools to answer questions about GitHub workspaces (issues, PRs, commits)",
