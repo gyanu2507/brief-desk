@@ -5,10 +5,10 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 const PORT = 3119;
 
-test("MCP health endpoint comes up", async () => {
+test("MCP health and root come up", async () => {
   const child = spawn("npx", ["tsx", "mcp/src/server.ts"], {
     cwd: new URL("../..", import.meta.url).pathname,
-    env: { ...process.env, MCP_PORT: String(PORT) },
+    env: { ...process.env, MCP_PORT: String(PORT), PORT: String(PORT) },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -19,8 +19,9 @@ test("MCP health endpoint comes up", async () => {
       try {
         const res = await fetch(`http://127.0.0.1:${PORT}/health`);
         if (res.ok) {
-          const body = (await res.json()) as { ok: boolean };
+          const body = (await res.json()) as { ok: boolean; mcp: string };
           assert.equal(body.ok, true);
+          assert.equal(body.mcp, "/mcp");
           ready = true;
           break;
         }
@@ -29,6 +30,14 @@ test("MCP health endpoint comes up", async () => {
       }
     }
     assert.equal(ready, true, "MCP health did not become ready");
+
+    const root = await fetch(`http://127.0.0.1:${PORT}/`);
+    assert.equal(root.status, 200);
+    const html = await root.text();
+    assert.match(html, /brief-desk MCP/);
+
+    const mcpGet = await fetch(`http://127.0.0.1:${PORT}/mcp`);
+    assert.equal(mcpGet.status, 405);
   } finally {
     child.kill("SIGTERM");
   }

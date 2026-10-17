@@ -1,19 +1,20 @@
 /**
- * Streamable HTTP MCP server.
- * Tools shell out to workspace-brief / corpus-brief CLIs so the desk stays thin.
+ * Streamable HTTP MCP server (stateless).
+ * Tools shell out to workspace-brief / corpus-brief CLIs.
  */
-import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { z } from "zod";
 
 const PORT = Number(process.env.PORT || process.env.MCP_PORT || 3108);
+const HOST = process.env.HOST || "0.0.0.0";
 
-function runCmd(command: string, args: string[], env: Record<string, string> = {}): Promise<string> {
+function runCmd(command: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      env: { ...process.env, ...env },
+      env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let out = "";
@@ -32,7 +33,7 @@ function runCmd(command: string, args: string[], env: Record<string, string> = {
   });
 }
 
-function createMcpServer(): McpServer {
+function createBriefMcpServer(): McpServer {
   const server = new McpServer({
     name: "brief-desk-mcp",
     version: "0.1.0",
@@ -53,7 +54,8 @@ function createMcpServer(): McpServer {
         .describe("fixture = offline sample, github = live API"),
     },
     async ({ question, repo, source }) => {
-      const src = source || process.env.BRIEF_SOURCE || (repo || process.env.BRIEF_REPO ? "github" : "fixture");
+      const src =
+        source || process.env.BRIEF_SOURCE || (repo || process.env.BRIEF_REPO ? "github" : "fixture");
       const args = ["--json", "--source", src, question];
       const target = repo || process.env.BRIEF_REPO;
       if (src === "github") {
@@ -73,7 +75,7 @@ function createMcpServer(): McpServer {
           content: [
             {
               type: "text",
-              text: `brief_workspace failed: ${(e as Error).message}. Install workspace-brief (pip install -e path/to/workspace-brief).`,
+              text: `brief_workspace failed: ${(e as Error).message}. Install workspace-brief.`,
             },
           ],
           isError: true,
@@ -100,7 +102,7 @@ function createMcpServer(): McpServer {
           content: [
             {
               type: "text",
-              text: `brief_corpus failed: ${(e as Error).message}. Install corpus-brief (pip install -e path/to/corpus-brief).`,
+              text: `brief_corpus failed: ${(e as Error).message}. Install corpus-brief.`,
             },
           ],
           isError: true,
@@ -135,36 +137,70 @@ function createMcpServer(): McpServer {
   return server;
 }
 
-async function main() {
-  const server = createMcpServer();
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
-  await server.connect(transport);
+const app = createMcpExpressApp();
 
-  const http = createServer(async (req, res) => {
-    if (req.method === "GET" && req.url === "/health") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, mcp: `http://127.0.0.1:${PORT}/mcp` }));
-      return;
+app.get("/health", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    mcp: "/mcp",
+    service: "brief-desk-mcp",
+  });
+});
+
+app.get("/", (_req, res) => {
+  res.status(200).type("html").send(`<!doctype html>
+<html><body style="font-family:system-ui;padding:2rem;max-width:40rem">
+  <h1>brief-desk MCP</h1>
+  <p>This is the tool server, not the chat UI.</p>
+  <ul>
+    <li><a href="/health">/health</a></li>
+    <li>MCP endpoint: <code>POST /mcp</code></li>
+  </ul>
+  <p>Deploy the Next.js app on Vercel and set <code>MCP_URL</code> to this host + <code>/mcp</code>.</p>
+</body></html>`);
+});
+
+app.post("/mcp", async (req, res) => {
+  const server = createBriefMcpServer();
+  try {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+    res.on("close", () => {
+      void transport.close();
+      void server.close();
+    });
+  } catch (error) {
+    console.error("Error handling MCP request:", error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: { code: -32603, message: "Internal server error" },
+        id: null,
+      });
     }
-    try {
-      await transport.handleRequest(req, res);
-    } catch (e) {
-      console.error(e);
-      if (!res.headersSent) {
-        res.writeHead(500).end("mcp error");
-      }
-    }
-  });
+  }
+});
 
-  const host = process.env.HOST || "0.0.0.0";
-  http.listen(PORT, host, () => {
-    console.log(`brief-desk MCP listening on http://${host}:${PORT}/mcp`);
+app.get("/mcp", (_req, res) => {
+  res.status(405).json({
+    jsonrpc: "2.0",
+    error: { code: -32000, message: "Method not allowed. Use POST /mcp." },
+    id: null,
   });
-}
+});
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
+app.delete("/mcp", (_req, res) => {
+  res.status(405).json({
+    jsonrpc: "2.0",
+    error: { code: -32000, message: "Method not allowed." },
+    id: null,
+  });
+});
+
+app.listen(PORT, HOST, () => {
+  console.log(`brief-desk MCP listening on http://${HOST}:${PORT}`);
+  console.log(`health: /health   mcp: POST /mcp`);
 });
