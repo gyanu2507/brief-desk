@@ -117,12 +117,63 @@ function activeStages(entries: LogEntry[], inProgress: boolean): Set<string> {
   return active;
 }
 
+function unwrapToolBody(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    // MCP CallToolResult shape: { content: [{ type: "text", text: "..." }], isError?: boolean }
+    const obj = asRecord(parsed);
+    if (obj && Array.isArray(obj.content)) {
+      const texts = obj.content
+        .map((part) => {
+          const p = asRecord(part);
+          return typeof p?.text === "string" ? p.text : "";
+        })
+        .filter(Boolean);
+      if (texts.length) return texts.join("\n");
+    }
+    if (typeof parsed === "string") return parsed;
+  } catch {
+    // plain text tool result
+  }
+  return trimmed;
+}
+
+function isToolFailure(msg: Record<string, unknown>, body: string): boolean {
+  if (msg.isError === true || msg.error === true) return true;
+  if (typeof msg.error === "string" && msg.error.trim()) return true;
+  // Only treat explicit MCP/tool failure markers, not README text that mentions "failed".
+  if (/"isError"\s*:\s*true/.test(body)) return true;
+  if (/\bbrief_[a-z_]+\s+failed:/i.test(body)) return true;
+  if (/^(Error|FAILED)\b/.test(body.trim())) return true;
+  return false;
+}
+
+function summarizeToolResult(body: string): string {
+  const unwrapped = unwrapToolBody(body);
+  try {
+    const parsed = JSON.parse(unwrapped) as Record<string, unknown>;
+    const bits: string[] = [];
+    if (typeof parsed.repo === "string") bits.push(parsed.repo);
+    if (typeof parsed.intent === "string") bits.push(`intent=${parsed.intent}`);
+    if (typeof parsed.description === "string" && parsed.description) {
+      bits.push(parsed.description.slice(0, 80));
+    }
+    if (bits.length) return bits.join(" · ");
+  } catch {
+    // not JSON
+  }
+  return truncateOneLine(unwrapped, 160);
+}
+
 function buildEntries(messages: unknown[], runtimeErrors: LogEntry[]): LogEntry[] {
   const out: LogEntry[] = [];
   let n = 0;
   const push = (partial: Omit<LogEntry, "id" | "t">) => {
     out.push({ id: `e-${n++}`, t: Date.now(), ...partial });
   };
+  const toolNamesByCallId = new Map<string, string>();
 
   for (const raw of messages) {
     const msg = asRecord(raw);
@@ -157,6 +208,7 @@ function buildEntries(messages: unknown[], runtimeErrors: LogEntry[]): LogEntry[
       if (Array.isArray(calls) && calls.length) {
         for (const call of calls) {
           const name = toolName(call);
+          if (call.id) toolNamesByCallId.set(call.id, name);
           const args = summarizeArgs(call.function?.arguments);
           push({
             kind: "tool",
@@ -176,19 +228,19 @@ function buildEntries(messages: unknown[], runtimeErrors: LogEntry[]): LogEntry[
     }
 
     if (role === "tool") {
+      const callId = typeof msg.toolCallId === "string" ? msg.toolCallId : "";
       const name =
-        typeof msg.name === "string"
-          ? msg.name
-          : typeof msg.toolCallId === "string"
-            ? `toolCall ${String(msg.toolCallId).slice(0, 8)}`
-            : "tool";
+        (typeof msg.name === "string" && msg.name) ||
+        (callId && toolNamesByCallId.get(callId)) ||
+        (callId ? `toolCall ${callId.slice(0, 8)}` : "tool");
       const body = content || (msg.content != null ? String(msg.content) : "");
-      const err =
-        body.includes("failed:") || body.includes('"isError":true') || /\bisError\b/.test(body);
+      const err = isToolFailure(msg, body);
       push({
         kind: err ? "error" : "result",
         title: err ? `Tool error ← ${name}` : `Result ← ${name}`,
-        detail: truncateOneLine(body || JSON.stringify(msg.content ?? ""), 160),
+        detail: err
+          ? truncateOneLine(unwrapToolBody(body) || body, 160)
+          : summarizeToolResult(body),
       });
     }
   }
