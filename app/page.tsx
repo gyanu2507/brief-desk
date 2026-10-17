@@ -70,8 +70,8 @@ export default function Page() {
           Agent desk for live workspaces
         </h1>
         <p style={{ margin: "0 0 18px", color: "var(--muted)", fontSize: 14, lineHeight: 1.5 }}>
-          Pick any public GitHub repo. Chat questions call MCP tools that hit the
-          live GitHub API (or the offline sample if no repo is set).
+          Pick any public GitHub repo. Questions pull README, files, issues/PRs,
+          and code search together so the agent can answer across the whole project.
         </p>
 
         <label
@@ -125,9 +125,8 @@ export default function Page() {
           <li>MCP → workspace-brief / corpus-brief</li>
         </ul>
         <p style={{ marginTop: 22, fontSize: 13, color: "var(--muted)" }}>
-          Overview: &quot;what are the main features?&quot;
-          <br />
-          Activity: &quot;what are the open issues?&quot;
+          Try: &quot;what are the main features?&quot;, &quot;how does auth work?&quot;,
+          or &quot;what are the open issues?&quot;
         </p>
       </aside>
       <section style={{ minHeight: "100vh", background: "#eef2ff" }}>

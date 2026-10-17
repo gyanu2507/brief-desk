@@ -44,11 +44,15 @@ npm run dev
 
 In the UI, set **GitHub repo** to any `owner/name` (saved in the browser).
 
-- **Overview / features / what is this?** → `brief_repo_overview` (README + description)
-- **Open issues, PRs, what landed?** → `brief_workspace` (live GitHub activity)
-- **Bundled local docs?** → `brief_corpus`
+Default live path is **`brief_repo_ask`**: one pack with README, root tree, matching
+issues/PRs, code-search file previews, and releases. Follow-ups can use
+`brief_repo_file`, `brief_workspace`, or `brief_repo_overview`.
 
-Without a repo, activity questions can use the offline sample fixture.
+`brief_corpus` is only the bundled local doc sample. Without a repo, activity
+questions can still use the offline fixture via `brief_workspace`.
+
+**Code search requires `GITHUB_TOKEN` on the MCP host** (GitHub’s rule). README /
+issues still work with lower unauthenticated limits.
 
 On the MCP host (local or Render), set `GITHUB_TOKEN` so public repos are not rate-limited quickly. Do **not** set `BRIEF_ALLOWED_REPOS` if you want any repo. Keep `BRIEF_SOURCE=fixture` as the no-repo fallback.
 

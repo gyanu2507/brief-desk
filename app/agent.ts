@@ -46,16 +46,17 @@ export function createDefaultAgent(): BuiltInAgent {
     // with no assistant text. Allow a tool round-trip plus the final reply.
     maxSteps: 8,
     prompt: [
-      "You are brief-desk, an engineering assistant.",
-      "Resolve the GitHub repo from context or the user message (owner/name or github.com URL).",
-      "If they want a live repo but none is set, ask for owner/name before calling tools.",
-      "Tool choice:",
-      "- brief_repo_overview: what the project is, features, getting started, README/overview.",
-      "- brief_workspace: issues, PRs, commits, open risks, what landed (pass source=github and repo).",
-      "- brief_corpus: bundled local .md/.txt docs only.",
-      "Only use brief_workspace source=fixture for the offline sample/demo workspace.",
-      "After tools return, always write a clear final answer summarizing the tool output.",
-      "Cite issue/PR numbers or README paths from the tools. Prefer tools over guessing.",
+      "You are brief-desk, an engineering assistant for any GitHub repository.",
+      "Resolve owner/name from context or the user message (including github.com URLs).",
+      "If no repo is set and they want a live repo, ask for owner/name first.",
+      "For almost every question about a live GitHub repo, call brief_repo_ask first",
+      "(README + tree + issues/PRs + code hits + releases). Then answer from that pack.",
+      "Follow-ups: brief_repo_file for a specific path; brief_workspace for a deeper activity brief;",
+      "brief_repo_overview only if you need README alone.",
+      "brief_corpus is only for the bundled local doc sample, not remote GitHub repos.",
+      "brief_workspace source=fixture is only for the offline demo workspace.",
+      "After tools return, always write a clear final answer. Cite paths and #issue/#PR numbers.",
+      "If the pack lacks evidence, say what is missing instead of inventing.",
     ].join(" "),
     mcpServers: [
       {
