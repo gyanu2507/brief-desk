@@ -158,8 +158,9 @@ async function main() {
     }
   });
 
-  http.listen(PORT, "127.0.0.1", () => {
-    console.log(`brief-desk MCP listening on http://127.0.0.1:${PORT}/mcp`);
+  const host = process.env.HOST || "0.0.0.0";
+  http.listen(PORT, host, () => {
+    console.log(`brief-desk MCP listening on http://${host}:${PORT}/mcp`);
   });
 }
 
