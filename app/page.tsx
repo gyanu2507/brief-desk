@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useCopilotReadable } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { AgentLog } from "./AgentLog";
+import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
 
 const REPO_KEY = "brief-desk-repo";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -49,6 +50,7 @@ export default function Page() {
   });
 
   return (
+    <TranscriptProvider>
     <main
       className="desk-shell"
       style={{
@@ -136,13 +138,15 @@ export default function Page() {
           labels={{
             title: "brief-desk",
             initial: activeRepo
-              ? `Ask about ${activeRepo}. Watch the agent log on the right for the live route.`
+              ? `Ask about ${activeRepo}. Watch the agent log for the live route.`
               : "Set a GitHub owner/name on the left for live answers, or ask about the offline sample workspace.",
           }}
           className="h-full"
+          Messages={LoggingMessages}
         />
       </section>
       <AgentLog />
     </main>
+    </TranscriptProvider>
   );
 }

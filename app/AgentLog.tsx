@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useAgent, UseAgentUpdate } from "@copilotkit/react-core/v2";
+import { useChatTranscript } from "./transcript-bridge";
 
 type LogEntry = {
   id: string;
@@ -89,20 +89,20 @@ const PIPELINE = [
   { id: "backend", label: "GitHub / brief CLI" },
 ] as const;
 
-function activeStages(entries: LogEntry[]): Set<string> {
+function activeStages(entries: LogEntry[], inProgress: boolean): Set<string> {
   const active = new Set<string>();
-  if (!entries.length) return active;
-  const last = entries[entries.length - 1];
+  if (!entries.length && !inProgress) return active;
   active.add("ui");
+  if (inProgress) {
+    active.add("api");
+    active.add("agent");
+  }
+  const last = entries[entries.length - 1];
+  if (!last) return active;
   if (last.kind === "user" || last.kind === "status") {
     active.add("api");
     active.add("agent");
-  } else if (last.kind === "tool" || last.kind === "route") {
-    active.add("api");
-    active.add("agent");
-    active.add("mcp");
-    active.add("backend");
-  } else if (last.kind === "result") {
+  } else if (last.kind === "tool" || last.kind === "route" || last.kind === "result") {
     active.add("api");
     active.add("agent");
     active.add("mcp");
@@ -127,9 +127,16 @@ function buildEntries(messages: unknown[], runtimeErrors: LogEntry[]): LogEntry[
   for (const raw of messages) {
     const msg = asRecord(raw);
     if (!msg) continue;
-    // AG-UI: absent role means assistant.
     const role = String(msg.role || "assistant");
     const content = messageContent(msg);
+
+    // Skip CopilotKit placeholder / system noise in the log.
+    if (role === "system" || role === "developer" || role === "activity" || role === "reasoning") {
+      continue;
+    }
+    if (typeof msg.name === "string" && msg.name === "coagent-state-render") {
+      continue;
+    }
 
     if (role === "user") {
       push({
@@ -142,10 +149,6 @@ function buildEntries(messages: unknown[], runtimeErrors: LogEntry[]): LogEntry[
         title: "Route",
         detail: "UI → POST /api/copilotkit (single-route agent/run) → BuiltInAgent",
       });
-      continue;
-    }
-
-    if (role === "system" || role === "developer" || role === "activity" || role === "reasoning") {
       continue;
     }
 
@@ -177,10 +180,11 @@ function buildEntries(messages: unknown[], runtimeErrors: LogEntry[]): LogEntry[
         typeof msg.name === "string"
           ? msg.name
           : typeof msg.toolCallId === "string"
-            ? `toolCall ${msg.toolCallId.slice(0, 8)}`
+            ? `toolCall ${String(msg.toolCallId).slice(0, 8)}`
             : "tool";
       const body = content || (msg.content != null ? String(msg.content) : "");
-      const err = body.includes("failed:") || body.includes('"isError":true') || body.includes("isError");
+      const err =
+        body.includes("failed:") || body.includes('"isError":true') || /\bisError\b/.test(body);
       push({
         kind: err ? "error" : "result",
         title: err ? `Tool error ← ${name}` : `Result ← ${name}`,
@@ -192,14 +196,9 @@ function buildEntries(messages: unknown[], runtimeErrors: LogEntry[]): LogEntry[
 }
 
 export function AgentLog() {
-  // AG-UI / single-route keeps the live transcript on the agent, not MessagesContext.
-  const { agent, isReady } = useAgent({
-    agentId: "default",
-    updates: [UseAgentUpdate.OnMessagesChanged, UseAgentUpdate.OnRunStatusChanged],
-  });
+  const { messages, inProgress, updatedAt } = useChatTranscript();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [runtimeErrors, setRuntimeErrors] = useState<LogEntry[]>([]);
-  const [runHint, setRunHint] = useState<LogEntry | null>(null);
 
   useEffect(() => {
     const onErr = (ev: Event) => {
@@ -220,73 +219,48 @@ export function AgentLog() {
     return () => window.removeEventListener("brief-desk-error", onErr);
   }, []);
 
-  useEffect(() => {
-    if (!isReady) return;
-    const { unsubscribe } = agent.subscribe({
-      onRunInitialized: () => {
-        setRunHint({
-          id: `run-${Date.now()}`,
-          t: Date.now(),
-          kind: "status",
-          title: "Agent run started",
-          detail: "BuiltInAgent → MCP tools → stream reply",
-        });
-      },
-      onRunFinalized: () => {
-        setRunHint(null);
-      },
-      onRunFailed: ({ error }) => {
-        const message = error instanceof Error ? error.message : String(error ?? "run failed");
-        setRuntimeErrors((prev) => [
-          ...prev.slice(-19),
+  const built = buildEntries(messages, runtimeErrors);
+  const entries =
+    inProgress && built.every((e) => e.kind !== "status")
+      ? [
+          ...built,
           {
-            id: `rf-${Date.now()}`,
+            id: "run-active",
             t: Date.now(),
-            kind: "error",
-            title: "Agent run failed",
-            detail: truncateOneLine(message, 200),
+            kind: "status" as const,
+            title: "Agent run in progress",
+            detail: "BuiltInAgent → MCP tools → stream reply",
           },
-        ]);
-        setRunHint(null);
-      },
-    });
-    return unsubscribe;
-  }, [agent, isReady]);
-
-  // Do not memoize on `agent.messages`: AG-UI mutates that array in place.
-  // useAgent's OnMessagesChanged force-render is what keeps this fresh.
-  const messages = agent.messages ?? [];
-  const built = buildEntries(messages as unknown[], runtimeErrors);
-  const entries = runHint ? [...built, runHint] : built;
-  const stages = activeStages(entries);
-  const fingerprint = `${messages.length}:${built.length}:${runtimeErrors.length}:${runHint?.id ?? ""}:${
-    typeof messages[messages.length - 1]?.content === "string"
-      ? String(messages[messages.length - 1]?.content).length
-      : ""
-  }`;
+        ]
+      : built;
+  const stages = activeStages(entries, inProgress);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [fingerprint]);
+  }, [entries.length, updatedAt, inProgress]);
 
   return (
     <aside
+      className="agent-log"
       style={{
         display: "flex",
         flexDirection: "column",
         minHeight: "100vh",
+        maxHeight: "100vh",
         borderLeft: "1px solid var(--line)",
         background: "#0b1220",
         color: "#e2e8f0",
+        overflow: "hidden",
       }}
     >
-      <div style={{ padding: "16px 16px 10px", borderBottom: "1px solid #1e293b" }}>
+      <div style={{ padding: "16px 16px 10px", borderBottom: "1px solid #1e293b", flexShrink: 0 }}>
         <p style={{ margin: 0, fontSize: 11, letterSpacing: "0.08em", color: "#94a3b8" }}>
           AGENT LOG
         </p>
         <p style={{ margin: "6px 0 0", fontSize: 13, color: "#cbd5e1", lineHeight: 1.4 }}>
           Live path: UI → runtime → MCP → backends
-          {!isReady ? " · connecting…" : ""}
+          {inProgress ? " · running…" : ""}
+          {messages.length > 0 ? ` · ${messages.length} msg` : ""}
         </p>
       </div>
 
@@ -297,6 +271,7 @@ export function AgentLog() {
           gap: 6,
           padding: "12px 16px",
           borderBottom: "1px solid #1e293b",
+          flexShrink: 0,
         }}
       >
         {PIPELINE.map((step, i) => {
@@ -330,10 +305,11 @@ export function AgentLog() {
         })}
       </div>
 
-      <div style={{ flex: 1, overflow: "auto", padding: "12px 16px 24px" }}>
+      <div style={{ flex: 1, overflow: "auto", padding: "12px 16px 24px", minHeight: 0 }}>
         {entries.length === 0 ? (
           <p style={{ margin: 0, fontSize: 13, color: "#64748b", lineHeight: 1.5 }}>
-            Send a chat message to see the agent route and tool calls here in realtime.
+            Send a chat message. This panel mirrors the chat transcript (tools + replies) as they
+            stream.
           </p>
         ) : (
           <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 10 }}>
