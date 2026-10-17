@@ -19,9 +19,11 @@ test("MCP health and root come up", async () => {
       try {
         const res = await fetch(`http://127.0.0.1:${PORT}/health`);
         if (res.ok) {
-          const body = (await res.json()) as { ok: boolean; mcp: string };
+          const body = (await res.json()) as { ok: boolean; mcp: string; version?: string; tools?: string[] };
           assert.equal(body.ok, true);
           assert.equal(body.mcp, "/mcp");
+          assert.equal(body.version, "0.3.0");
+          assert.ok(body.tools?.includes("brief_repo_ask"));
           ready = true;
           break;
         }

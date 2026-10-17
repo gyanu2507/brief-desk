@@ -37,7 +37,7 @@ export default function Page() {
 
   useCopilotReadable({
     description:
-      "Active GitHub repository for live workspace briefing. When set, call brief_workspace with source=github and this repo.",
+      "Active GitHub repository. Prefer brief_repo_overview for features/overview, brief_workspace for issues/PRs, brief_repo_ask for code/how-it-works. Pass this repo on every tool call.",
     value: activeRepo
       ? { repo: activeRepo, source: "github", mode: "live" }
       : {

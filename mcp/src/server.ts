@@ -78,6 +78,48 @@ function searchTerms(question: string): string {
     .join(" ");
 }
 
+type AskIntent = "overview" | "activity" | "code" | "mixed";
+
+function classifyAskIntent(question: string): AskIntent {
+  const q = question.toLowerCase();
+  const overview =
+    /\b(feature|features|overview|what is|what does|readme|getting started|about this|describe|summary of the (repo|project))\b/.test(
+      q,
+    );
+  const activity =
+    /\b(issue|issues|pr|prs|pull request|bug|risk|risks|landed|merged|open|activity|changelog|release)\b/.test(q);
+  const code =
+    /\b(how does|where is|implement|implemented|code|source|function|class|file|path|api|endpoint|config)\b/.test(q);
+  if (overview && !activity && !code) return "overview";
+  if (activity && !code && !overview) return "activity";
+  if (code && !activity) return "code";
+  if (overview && activity && !code) return "activity";
+  return "mixed";
+}
+
+type CacheEntry = { expires: number; value: unknown };
+const ttlCache = new Map<string, CacheEntry>();
+const META_TTL_MS = 60_000;
+const README_TTL_MS = 60_000;
+
+function cacheGet<T>(key: string): T | undefined {
+  const hit = ttlCache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() > hit.expires) {
+    ttlCache.delete(key);
+    return undefined;
+  }
+  return hit.value as T;
+}
+
+function cacheSet(key: string, value: unknown, ttlMs: number): void {
+  ttlCache.set(key, { expires: Date.now() + ttlMs, value });
+  if (ttlCache.size > 200) {
+    const first = ttlCache.keys().next().value;
+    if (first !== undefined) ttlCache.delete(first);
+  }
+}
+
 async function decodeContentFile(path: string, repo: string): Promise<{ path: string; text: string } | null> {
   const res = await githubJson<{
     type?: string;
@@ -97,6 +139,14 @@ async function decodeContentFile(path: string, repo: string): Promise<{ path: st
 }
 
 async function fetchRepoMeta(repo: string) {
+  const cached = cacheGet<Awaited<ReturnType<typeof fetchRepoMetaUncached>>>(`meta:${repo}`);
+  if (cached) return cached;
+  const data = await fetchRepoMetaUncached(repo);
+  cacheSet(`meta:${repo}`, data, META_TTL_MS);
+  return data;
+}
+
+async function fetchRepoMetaUncached(repo: string) {
   const res = await githubJson<{
     full_name?: string;
     description?: string | null;
@@ -113,12 +163,24 @@ async function fetchRepoMeta(repo: string) {
   return res.data;
 }
 
-async function fetchReadme(repo: string): Promise<string> {
+async function fetchReadme(repo: string, maxChars = 3500): Promise<string> {
+  const key = `readme:${repo}:${maxChars}`;
+  const cached = cacheGet<string>(key);
+  if (cached !== undefined) return cached;
   const res = await githubJson<{ content?: string; encoding?: string }>(`/repos/${repo}/readme`);
-  if (!res.ok) return res.status === 404 ? "" : `[readme error ${res.status}]`;
-  if (res.data.encoding !== "base64" || !res.data.content) return "";
+  if (!res.ok) {
+    const text = res.status === 404 ? "" : `[readme error ${res.status}]`;
+    cacheSet(key, text, README_TTL_MS);
+    return text;
+  }
+  if (res.data.encoding !== "base64" || !res.data.content) {
+    cacheSet(key, "", README_TTL_MS);
+    return "";
+  }
   // Keep small: Groq free tier TPM rejects oversized tool payloads.
-  return truncate(Buffer.from(res.data.content.replace(/\n/g, ""), "base64").toString("utf8"), 3500);
+  const text = truncate(Buffer.from(res.data.content.replace(/\n/g, ""), "base64").toString("utf8"), maxChars);
+  cacheSet(key, text, README_TTL_MS);
+  return text;
 }
 
 async function fetchIssueHits(repo: string, question: string) {
@@ -213,20 +275,30 @@ async function fetchReleases(repo: string) {
   };
 }
 
-/** Broad pack: README + tree + issues/PRs + code hits + releases. */
+/** Intent-shaped pack: pull only the slices that answer the question. */
 async function fetchRepoAsk(repo: string, question: string): Promise<string> {
+  const intent = classifyAskIntent(question);
   const meta = await fetchRepoMeta(repo);
   const branch = meta.default_branch || "main";
+
+  const wantReadme = intent === "overview" || intent === "mixed" || intent === "code";
+  const wantRoot = intent === "overview" || intent === "mixed" || intent === "code";
+  const wantIssues = intent === "activity" || intent === "mixed";
+  const wantCode = intent === "code" || intent === "mixed";
+  const wantReleases = intent === "activity" || intent === "mixed" || intent === "overview";
+  const readmeMax = intent === "overview" ? 3500 : intent === "code" ? 1800 : 2200;
+
   const [readme, issues, code, root, releases] = await Promise.all([
-    fetchReadme(repo),
-    fetchIssueHits(repo, question),
-    fetchCodeHits(repo, question),
-    fetchRootListing(repo, branch),
-    fetchReleases(repo),
+    wantReadme ? fetchReadme(repo, readmeMax) : Promise.resolve(""),
+    wantIssues ? fetchIssueHits(repo, question) : Promise.resolve({ items: [] as const, skipped: true }),
+    wantCode ? fetchCodeHits(repo, question) : Promise.resolve({ items: [] as const, skipped: true }),
+    wantRoot ? fetchRootListing(repo, branch) : Promise.resolve({ entries: [] as const, skipped: true }),
+    wantReleases ? fetchReleases(repo) : Promise.resolve({ items: [] as const, skipped: true }),
   ]);
 
-  const pack = {
+  const pack: Record<string, unknown> = {
     question,
+    intent,
     repo: meta.full_name || repo,
     url: meta.html_url || `https://github.com/${repo}`,
     description: meta.description || "",
@@ -237,18 +309,30 @@ async function fetchRepoAsk(repo: string, question: string): Promise<string> {
     open_issues: meta.open_issues_count ?? 0,
     license: meta.license?.spdx_id || "",
     default_branch: branch,
-    readme,
-    root,
-    issues_and_prs: issues,
-    code,
-    releases,
     guidance:
       "Answer using this evidence. Cite file paths, issue/PR numbers, and README sections. If something is missing, say what was not found.",
   };
+  if (wantReadme) pack.readme = readme;
+  if (wantRoot) pack.root = root;
+  if (wantIssues) pack.issues_and_prs = issues;
+  if (wantCode) pack.code = code;
+  if (wantReleases) pack.releases = releases;
+  if (!wantCode && intent === "overview") {
+    pack.note = "Overview pack (no code search). Use brief_repo_ask with a code question or brief_repo_file for paths.";
+  }
+
   let text = JSON.stringify(pack, null, 2);
-  // Hard cap for Groq free TPM (~8k). Leave room for the model prompt/tools.
-  if (text.length > 14000) {
-    text = JSON.stringify({ ...pack, readme: truncate(readme, 1800), code: { note: "omitted to fit model limit; use brief_repo_file" } }, null, 2);
+  // Hard cap for Groq free TPM. Leave room for the model prompt/tools.
+  if (text.length > 14000 && wantReadme) {
+    text = JSON.stringify(
+      {
+        ...pack,
+        readme: truncate(typeof readme === "string" ? readme : "", 1400),
+        code: wantCode ? { note: "omitted to fit model limit; use brief_repo_file" } : undefined,
+      },
+      null,
+      2,
+    );
   }
   if (text.length > 14000) {
     text = truncate(text, 14000);
@@ -279,12 +363,12 @@ async function fetchRepoOverview(repo: string): Promise<string> {
 function createBriefMcpServer(): McpServer {
   const server = new McpServer({
     name: "brief-desk-mcp",
-    version: "0.2.0",
+    version: "0.3.0",
   });
 
   server.tool(
     "brief_repo_ask",
-    "Default tool for any question about a GitHub repo. Pulls README, root tree, matching issues/PRs, code search hits (with file previews), and recent releases in one pack.",
+    "Ask about a GitHub repo. Shapes the evidence pack by intent (overview / activity / code / mixed) so payloads stay under model TPM limits.",
     {
       question: z.string().describe("The user question about the repository"),
       repo: z.string().describe("owner/name (or https://github.com/owner/name)"),
@@ -311,7 +395,7 @@ function createBriefMcpServer(): McpServer {
 
   server.tool(
     "brief_repo_overview",
-    "Fetch only description + README. Prefer brief_repo_ask unless you already have enough context.",
+    "Fetch description + README only. Prefer for features / what-is-this questions.",
     {
       repo: z.string().describe("owner/name (also accepts https://github.com/owner/name)"),
     },
@@ -495,7 +579,7 @@ app.get("/health", (_req, res) => {
     ok: true,
     mcp: "/mcp",
     service: "brief-desk-mcp",
-    version: "0.2.1",
+    version: "0.3.0",
     tools: [
       "brief_repo_ask",
       "brief_repo_overview",

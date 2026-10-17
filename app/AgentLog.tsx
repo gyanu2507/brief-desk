@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCopilotMessagesContext } from "@copilotkit/react-core";
 
 type LogEntry = {
@@ -102,6 +102,26 @@ function activeStages(entries: LogEntry[]): Set<string> {
 export function AgentLog() {
   const { messages } = useCopilotMessagesContext();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [runtimeErrors, setRuntimeErrors] = useState<LogEntry[]>([]);
+
+  useEffect(() => {
+    const onErr = (ev: Event) => {
+      const detail = (ev as CustomEvent<string>).detail;
+      const message = typeof detail === "string" ? detail : "Unknown runtime error";
+      setRuntimeErrors((prev) => [
+        ...prev.slice(-19),
+        {
+          id: `rt-${Date.now()}`,
+          t: Date.now(),
+          kind: "error",
+          title: "Runtime error",
+          detail: truncateOneLine(message, 200),
+        },
+      ]);
+    };
+    window.addEventListener("brief-desk-error", onErr);
+    return () => window.removeEventListener("brief-desk-error", onErr);
+  }, []);
 
   const entries = useMemo(() => {
     const out: LogEntry[] = [];
@@ -174,8 +194,8 @@ export function AgentLog() {
         });
       }
     }
-    return out;
-  }, [messages]);
+    return [...out, ...runtimeErrors];
+  }, [messages, runtimeErrors]);
 
   const stages = activeStages(entries);
 
