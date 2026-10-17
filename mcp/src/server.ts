@@ -93,7 +93,7 @@ async function decodeContentFile(path: string, repo: string): Promise<{ path: st
     return { path: res.data.path || path, text: "[file too large to inline]" };
   }
   const text = Buffer.from(res.data.content.replace(/\n/g, ""), "base64").toString("utf8");
-  return { path: res.data.path || path, text: truncate(text, 6000) };
+  return { path: res.data.path || path, text: truncate(text, 1800) };
 }
 
 async function fetchRepoMeta(repo: string) {
@@ -117,7 +117,8 @@ async function fetchReadme(repo: string): Promise<string> {
   const res = await githubJson<{ content?: string; encoding?: string }>(`/repos/${repo}/readme`);
   if (!res.ok) return res.status === 404 ? "" : `[readme error ${res.status}]`;
   if (res.data.encoding !== "base64" || !res.data.content) return "";
-  return truncate(Buffer.from(res.data.content.replace(/\n/g, ""), "base64").toString("utf8"), 10000);
+  // Keep small: Groq free tier TPM rejects oversized tool payloads.
+  return truncate(Buffer.from(res.data.content.replace(/\n/g, ""), "base64").toString("utf8"), 3500);
 }
 
 async function fetchIssueHits(repo: string, question: string) {
@@ -131,7 +132,7 @@ async function fetchIssueHits(repo: string, question: string) {
       body?: string | null;
       pull_request?: unknown;
     }>;
-  }>(`/search/issues?q=${q}&per_page=8`);
+  }>(`/search/issues?q=${q}&per_page=5`);
   if (!res.ok) return { error: `${res.status}: ${res.error}`, items: [] as const };
   return {
     items: (res.data.items || []).map((it) => ({
@@ -140,7 +141,7 @@ async function fetchIssueHits(repo: string, question: string) {
       state: it.state,
       kind: it.pull_request ? "pr" : "issue",
       url: it.html_url,
-      body: truncate((it.body || "").replace(/\r/g, ""), 500),
+      body: truncate((it.body || "").replace(/\r/g, ""), 180),
     })),
   };
 }
@@ -156,7 +157,7 @@ async function fetchCodeHits(repo: string, question: string) {
       sha?: string;
       text_matches?: Array<{ fragment?: string }>;
     }>;
-  }>(`/search/code?q=${q}&per_page=6`);
+  }>(`/search/code?q=${q}&per_page=4`);
   if (!res.ok) {
     return {
       error: `${res.status}: ${res.error}`,
@@ -169,13 +170,13 @@ async function fetchCodeHits(repo: string, question: string) {
   }
   const items = res.data.items || [];
   const files: Array<{ path: string; url?: string; fragment?: string; preview?: string }> = [];
-  for (const hit of items.slice(0, 4)) {
+  for (const hit of items.slice(0, 2)) {
     if (!hit.path) continue;
     const file = await decodeContentFile(hit.path, repo);
     files.push({
       path: hit.path,
       url: hit.html_url,
-      fragment: hit.text_matches?.[0]?.fragment,
+      fragment: truncate(hit.text_matches?.[0]?.fragment || "", 240),
       preview: file?.text,
     });
   }
@@ -188,11 +189,10 @@ async function fetchRootListing(repo: string, branch: string) {
   );
   if (!res.ok) return { error: `${res.status}: ${res.error}`, entries: [] as const };
   return {
-    entries: (res.data || []).slice(0, 40).map((e) => ({
+    entries: (res.data || []).slice(0, 20).map((e) => ({
       name: e.name,
       path: e.path,
       type: e.type,
-      size: e.size,
     })),
   };
 }
@@ -225,30 +225,47 @@ async function fetchRepoAsk(repo: string, question: string): Promise<string> {
     fetchReleases(repo),
   ]);
 
-  return JSON.stringify(
-    {
-      question,
-      repo: meta.full_name || repo,
-      url: meta.html_url || `https://github.com/${repo}`,
-      description: meta.description || "",
-      homepage: meta.homepage || "",
-      topics: meta.topics || [],
-      language: meta.language || "",
-      stars: meta.stargazers_count ?? 0,
-      open_issues: meta.open_issues_count ?? 0,
-      license: meta.license?.spdx_id || "",
-      default_branch: branch,
-      readme,
-      root,
-      issues_and_prs: issues,
-      code,
-      releases,
-      guidance:
-        "Answer using this evidence. Cite file paths, issue/PR numbers, and README sections. If something is missing, say what was not found.",
-    },
-    null,
-    2,
-  );
+  const pack = {
+    question,
+    repo: meta.full_name || repo,
+    url: meta.html_url || `https://github.com/${repo}`,
+    description: meta.description || "",
+    homepage: meta.homepage || "",
+    topics: meta.topics || [],
+    language: meta.language || "",
+    stars: meta.stargazers_count ?? 0,
+    open_issues: meta.open_issues_count ?? 0,
+    license: meta.license?.spdx_id || "",
+    default_branch: branch,
+    readme,
+    root,
+    issues_and_prs: issues,
+    code,
+    releases,
+    guidance:
+      "Answer using this evidence. Cite file paths, issue/PR numbers, and README sections. If something is missing, say what was not found.",
+  };
+  let text = JSON.stringify(pack, null, 2);
+  // Hard cap for Groq free TPM (~8k). Leave room for the model prompt/tools.
+  if (text.length > 14000) {
+    pack.readme = truncate(readme, 2000);
+    if (pack.code && "items" in pack.code) {
+      pack.code = {
+        ...pack.code,
+        items: (pack.code.items || []).map((it: { preview?: string; path?: string; url?: string; fragment?: string }) => ({
+          path: it.path,
+          url: it.url,
+          fragment: it.fragment,
+          preview: truncate(it.preview || "", 800),
+        })),
+      };
+    }
+    text = JSON.stringify(pack, null, 2);
+  }
+  if (text.length > 14000) {
+    text = truncate(text, 14000);
+  }
+  return text;
 }
 
 async function fetchRepoOverview(repo: string): Promise<string> {
@@ -490,7 +507,7 @@ app.get("/health", (_req, res) => {
     ok: true,
     mcp: "/mcp",
     service: "brief-desk-mcp",
-    version: "0.2.0",
+    version: "0.2.1",
     tools: [
       "brief_repo_ask",
       "brief_repo_overview",
