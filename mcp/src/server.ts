@@ -250,15 +250,15 @@ async function fetchRepoAsk(repo: string, question: string): Promise<string> {
   if (text.length > 14000) {
     pack.readme = truncate(readme, 2000);
     if (pack.code && "items" in pack.code) {
-      pack.code = {
-        ...pack.code,
-        items: (pack.code.items || []).map((it: { preview?: string; path?: string; url?: string; fragment?: string }) => ({
+      const items = (pack.code.items || [])
+        .filter((it): it is { path: string; url?: string; fragment?: string; preview?: string } => !!it.path)
+        .map((it) => ({
           path: it.path,
           url: it.url,
           fragment: it.fragment,
           preview: truncate(it.preview || "", 800),
-        })),
-      };
+        }));
+      pack.code = { ...pack.code, items };
     }
     text = JSON.stringify(pack, null, 2);
   }
