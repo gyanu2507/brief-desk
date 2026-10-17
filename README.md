@@ -42,13 +42,11 @@ npm run dev
 - MCP health: http://127.0.0.1:3108/health  
 - MCP endpoint: http://127.0.0.1:3108/mcp  
 
-Ask in chat: `what are the open checkout risks?` (sample workspace) or `how do webhooks stay idempotent?` (sample corpus).
+In the UI, set **GitHub repo** to any `owner/name` (saved in the browser). Chat then calls `brief_workspace` with `source=github` against the live API.
 
-Live GitHub:
+Without a repo, questions use the offline sample fixture. Corpus questions still work via `brief_corpus`.
 
-```bash
-BRIEF_SOURCE=github BRIEF_REPO=owner/name GITHUB_TOKEN=… npm run dev
-```
+On the MCP host (local or Render), set `GITHUB_TOKEN` so public repos are not rate-limited quickly. Do **not** set `BRIEF_ALLOWED_REPOS` if you want any repo. Keep `BRIEF_SOURCE=fixture` as the no-repo fallback.
 
 ## Verify
 

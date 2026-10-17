@@ -10,6 +10,17 @@ import { z } from "zod";
 
 const PORT = Number(process.env.PORT || process.env.MCP_PORT || 3108);
 const HOST = process.env.HOST || "0.0.0.0";
+const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+function normalizeGithubRepo(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/\.git$/, "")
+    .replace(/\/$/, "");
+  return REPO_RE.test(trimmed) ? trimmed : undefined;
+}
 
 function runCmd(command: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -41,27 +52,35 @@ function createBriefMcpServer(): McpServer {
 
   server.tool(
     "brief_workspace",
-    "Ask any GitHub workspace (or the offline sample) what changed. Returns a cited brief.",
+    "Ask a GitHub repo (live API) or the offline sample what changed. Returns a cited brief. For realtime answers pass source=github and repo=owner/name.",
     {
       question: z.string().describe("Plain-English question about the workspace"),
       repo: z
         .string()
         .optional()
-        .describe("owner/name for live GitHub; omit to use BRIEF_REPO or offline sample"),
+        .describe("owner/name for live GitHub (also accepts https://github.com/owner/name)"),
       source: z
         .enum(["fixture", "github"])
         .optional()
-        .describe("fixture = offline sample, github = live API"),
+        .describe("github = live API (default when repo is set); fixture = offline sample"),
     },
     async ({ question, repo, source }) => {
+      const target = normalizeGithubRepo(repo || process.env.BRIEF_REPO);
       const src =
-        source || process.env.BRIEF_SOURCE || (repo || process.env.BRIEF_REPO ? "github" : "fixture");
+        source ||
+        (target ? "github" : undefined) ||
+        process.env.BRIEF_SOURCE ||
+        "fixture";
       const args = ["--json", "--source", src, question];
-      const target = repo || process.env.BRIEF_REPO;
       if (src === "github") {
         if (!target) {
           return {
-            content: [{ type: "text", text: "repo is required for source=github (owner/name)" }],
+            content: [
+              {
+                type: "text",
+                text: "repo is required for source=github (pass owner/name)",
+              },
+            ],
             isError: true,
           };
         }
@@ -75,7 +94,7 @@ function createBriefMcpServer(): McpServer {
           content: [
             {
               type: "text",
-              text: `brief_workspace failed: ${(e as Error).message}. Install workspace-brief.`,
+              text: `brief_workspace failed: ${(e as Error).message}. Install workspace-brief and set GITHUB_TOKEN on the MCP host for higher rate limits.`,
             },
           ],
           isError: true,

@@ -47,9 +47,14 @@ export function createDefaultAgent(): BuiltInAgent {
     maxSteps: 8,
     prompt: [
       "You are brief-desk, an engineering assistant.",
-      "Use MCP tools to answer questions about GitHub workspaces (issues, PRs, commits)",
-      "and local document corpora. Always prefer tool results over guessing.",
-      "Cite issue numbers, PR numbers, or document paths when the tools return them.",
+      "For GitHub workspace questions, call brief_workspace.",
+      "If context has an active repo (owner/name) or the user names one (including a github.com URL),",
+      "pass source=\"github\" and repo=\"owner/name\" so the tool hits the live GitHub API.",
+      "Only use source=\"fixture\" when the user asks for the offline sample/demo workspace,",
+      "or when no repo is available and they accept the sample.",
+      "If they want a live repo but none is set, ask for owner/name before calling tools.",
+      "For local docs, use brief_corpus. Prefer tool results over guessing.",
+      "Cite issue numbers, PR numbers, or document paths from the tool output.",
     ].join(" "),
     mcpServers: [
       {
