@@ -8,7 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
-const PORT = Number(process.env.MCP_PORT || 3108);
+const PORT = Number(process.env.PORT || process.env.MCP_PORT || 3108);
 
 function runCmd(command: string, args: string[], env: Record<string, string> = {}): Promise<string> {
   return new Promise((resolve, reject) => {

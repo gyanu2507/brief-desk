@@ -18,10 +18,13 @@ Not a toy chatbot wrapper. The model only answers after calling MCP tools that h
 
 ## Setup
 
+Uses **Groq** by default (free tier, OpenAI-compatible). No OpenAI account required.
+
 ```bash
-# UI + MCP
 cd brief-desk
-cp .env.example .env.local   # add OPENAI_API_KEY
+cp .env.example .env.local
+# set OPENAI_API_KEY to your Groq key (https://console.groq.com)
+# OPENAI_BASE_URL and COPILOTKIT_AGENT_MODEL are already set for Groq in .env.example
 npm install
 
 # tool backends (once)
