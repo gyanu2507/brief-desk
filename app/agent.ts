@@ -7,11 +7,17 @@ const PROVIDER_ALIASES: Record<string, "openai" | "anthropic" | "google"> = {
   gemini: "google",
 };
 
-/** Groq free/dev tier shut these down; map to current OpenAI-compatible IDs. */
+/**
+ * Groq free/dev tier shut the old Llama ids down. CopilotKit parses
+ * `provider/modelId` on the first slash, so Groq's `openai/gpt-oss-20b`
+ * must be passed as `openai/openai/gpt-oss-20b` (modelId keeps the slash).
+ */
 const GROQ_MODEL_ALIASES: Record<string, string> = {
-  "llama-3.3-70b-versatile": "gpt-oss-20b",
-  "llama-3.1-8b-instant": "gpt-oss-20b",
-  "llama-3.1-70b-versatile": "gpt-oss-20b",
+  "llama-3.3-70b-versatile": "openai/gpt-oss-20b",
+  "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+  "llama-3.1-70b-versatile": "openai/gpt-oss-20b",
+  "gpt-oss-20b": "openai/gpt-oss-20b",
+  "gpt-oss-120b": "openai/gpt-oss-120b",
 };
 
 export function resolveAgentModel(defaultSpec: string): string {
@@ -20,7 +26,7 @@ export function resolveAgentModel(defaultSpec: string): string {
   const provider = match && PROVIDER_ALIASES[match[1].toLowerCase()];
   if (!match || !provider) {
     throw new Error(
-      `COPILOTKIT_AGENT_MODEL="${value}" must look like openai:gpt-oss-20b (or anthropic:/google:)`,
+      `COPILOTKIT_AGENT_MODEL="${value}" must look like openai:openai/gpt-oss-20b (or anthropic:/google:)`,
     );
   }
   const modelId = GROQ_MODEL_ALIASES[match[2]] ?? match[2];
@@ -35,7 +41,7 @@ export function createDefaultAgent(): BuiltInAgent {
   const mcpUrl = process.env.MCP_URL || "http://127.0.0.1:3108/mcp";
 
   return new BuiltInAgent({
-    model: resolveAgentModel("openai:gpt-oss-20b"),
+    model: resolveAgentModel("openai:openai/gpt-oss-20b"),
     prompt: [
       "You are brief-desk, an engineering assistant.",
       "Use MCP tools to answer questions about GitHub workspaces (issues, PRs, commits)",
