@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useCopilotReadable } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
+import { AgentLog } from "./AgentLog";
 
 const REPO_KEY = "brief-desk-repo";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -49,10 +50,11 @@ export default function Page() {
 
   return (
     <main
+      className="desk-shell"
       style={{
         minHeight: "100vh",
         display: "grid",
-        gridTemplateColumns: "minmax(240px, 320px) 1fr",
+        gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr) minmax(260px, 340px)",
         gap: 0,
       }}
     >
@@ -70,8 +72,8 @@ export default function Page() {
           Agent desk for live workspaces
         </h1>
         <p style={{ margin: "0 0 18px", color: "var(--muted)", fontSize: 14, lineHeight: 1.5 }}>
-          Pick any public GitHub repo. Questions pull README, files, issues/PRs,
-          and code search together so the agent can answer across the whole project.
+          Pick any public GitHub repo. The right panel shows the live agent route
+          and tool calls as they run.
         </p>
 
         <label
@@ -122,24 +124,25 @@ export default function Page() {
         >
           <li>CopilotKit chat + runtime</li>
           <li>AG-UI agent protocol</li>
-          <li>MCP → workspace-brief / corpus-brief</li>
+          <li>MCP → GitHub / brief CLIs</li>
         </ul>
         <p style={{ marginTop: 22, fontSize: 13, color: "var(--muted)" }}>
           Try: &quot;what are the main features?&quot;, &quot;how does auth work?&quot;,
           or &quot;what are the open issues?&quot;
         </p>
       </aside>
-      <section style={{ minHeight: "100vh", background: "#eef2ff" }}>
+      <section style={{ minHeight: "100vh", background: "#eef2ff", minWidth: 0 }}>
         <CopilotChat
           labels={{
             title: "brief-desk",
             initial: activeRepo
-              ? `Ask about ${activeRepo}. I will pull live issues, PRs, and commits via MCP.`
+              ? `Ask about ${activeRepo}. Watch the agent log on the right for the live route.`
               : "Set a GitHub owner/name on the left for live answers, or ask about the offline sample workspace.",
           }}
           className="h-full"
         />
       </section>
+      <AgentLog />
     </main>
   );
 }
