@@ -125,7 +125,9 @@ export default function Page() {
           <li>MCP → workspace-brief / corpus-brief</li>
         </ul>
         <p style={{ marginTop: 22, fontSize: 13, color: "var(--muted)" }}>
-          Try: &quot;what are the open issues?&quot; or &quot;what PRs landed recently?&quot;
+          Overview: &quot;what are the main features?&quot;
+          <br />
+          Activity: &quot;what are the open issues?&quot;
         </p>
       </aside>
       <section style={{ minHeight: "100vh", background: "#eef2ff" }}>

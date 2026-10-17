@@ -47,14 +47,15 @@ export function createDefaultAgent(): BuiltInAgent {
     maxSteps: 8,
     prompt: [
       "You are brief-desk, an engineering assistant.",
-      "For GitHub workspace questions, call brief_workspace.",
-      "If context has an active repo (owner/name) or the user names one (including a github.com URL),",
-      "pass source=\"github\" and repo=\"owner/name\" so the tool hits the live GitHub API.",
-      "Only use source=\"fixture\" when the user asks for the offline sample/demo workspace,",
-      "or when no repo is available and they accept the sample.",
+      "Resolve the GitHub repo from context or the user message (owner/name or github.com URL).",
       "If they want a live repo but none is set, ask for owner/name before calling tools.",
-      "For local docs, use brief_corpus. Prefer tool results over guessing.",
-      "Cite issue numbers, PR numbers, or document paths from the tool output.",
+      "Tool choice:",
+      "- brief_repo_overview: what the project is, features, getting started, README/overview.",
+      "- brief_workspace: issues, PRs, commits, open risks, what landed (pass source=github and repo).",
+      "- brief_corpus: bundled local .md/.txt docs only.",
+      "Only use brief_workspace source=fixture for the offline sample/demo workspace.",
+      "After tools return, always write a clear final answer summarizing the tool output.",
+      "Cite issue/PR numbers or README paths from the tools. Prefer tools over guessing.",
     ].join(" "),
     mcpServers: [
       {

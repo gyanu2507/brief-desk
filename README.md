@@ -42,9 +42,13 @@ npm run dev
 - MCP health: http://127.0.0.1:3108/health  
 - MCP endpoint: http://127.0.0.1:3108/mcp  
 
-In the UI, set **GitHub repo** to any `owner/name` (saved in the browser). Chat then calls `brief_workspace` with `source=github` against the live API.
+In the UI, set **GitHub repo** to any `owner/name` (saved in the browser).
 
-Without a repo, questions use the offline sample fixture. Corpus questions still work via `brief_corpus`.
+- **Overview / features / what is this?** → `brief_repo_overview` (README + description)
+- **Open issues, PRs, what landed?** → `brief_workspace` (live GitHub activity)
+- **Bundled local docs?** → `brief_corpus`
+
+Without a repo, activity questions can use the offline sample fixture.
 
 On the MCP host (local or Render), set `GITHUB_TOKEN` so public repos are not rate-limited quickly. Do **not** set `BRIEF_ALLOWED_REPOS` if you want any repo. Keep `BRIEF_SOURCE=fixture` as the no-repo fallback.
 
