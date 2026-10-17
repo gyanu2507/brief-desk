@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <CopilotKit
           runtimeUrl="/api/copilotkit"
           showDevConsole={process.env.NODE_ENV === "development"}
-          useSingleEndpoint={false}
+          useSingleEndpoint={true}
         >
           {children}
         </CopilotKit>

@@ -1,7 +1,7 @@
 import {
   CopilotRuntime,
   InMemoryAgentRunner,
-  createCopilotEndpoint,
+  createCopilotEndpointSingleRoute,
 } from "@copilotkit/runtime/v2";
 import { handle } from "hono/vercel";
 import { createDefaultAgent } from "../../../agent";
@@ -13,7 +13,7 @@ const runtime = new CopilotRuntime({
   runner: new InMemoryAgentRunner(),
 });
 
-const app = createCopilotEndpoint({
+const app = createCopilotEndpointSingleRoute({
   runtime,
   basePath: "/api/copilotkit",
 });
