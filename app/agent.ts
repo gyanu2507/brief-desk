@@ -7,16 +7,24 @@ const PROVIDER_ALIASES: Record<string, "openai" | "anthropic" | "google"> = {
   gemini: "google",
 };
 
+/** Groq free/dev tier shut these down; map to current OpenAI-compatible IDs. */
+const GROQ_MODEL_ALIASES: Record<string, string> = {
+  "llama-3.3-70b-versatile": "gpt-oss-20b",
+  "llama-3.1-8b-instant": "gpt-oss-20b",
+  "llama-3.1-70b-versatile": "gpt-oss-20b",
+};
+
 export function resolveAgentModel(defaultSpec: string): string {
   const value = process.env.COPILOTKIT_AGENT_MODEL?.trim() || defaultSpec;
   const match = /^([A-Za-z0-9-]+)[:/](.+)$/.exec(value.trim());
   const provider = match && PROVIDER_ALIASES[match[1].toLowerCase()];
   if (!match || !provider) {
     throw new Error(
-      `COPILOTKIT_AGENT_MODEL="${value}" must look like openai:gpt-4o-mini (or anthropic:/google:)`,
+      `COPILOTKIT_AGENT_MODEL="${value}" must look like openai:gpt-oss-20b (or anthropic:/google:)`,
     );
   }
-  return `${provider}/${match[2]}`;
+  const modelId = GROQ_MODEL_ALIASES[match[2]] ?? match[2];
+  return `${provider}/${modelId}`;
 }
 
 /**
@@ -27,7 +35,7 @@ export function createDefaultAgent(): BuiltInAgent {
   const mcpUrl = process.env.MCP_URL || "http://127.0.0.1:3108/mcp";
 
   return new BuiltInAgent({
-    model: resolveAgentModel("openai:gpt-4o-mini"),
+    model: resolveAgentModel("openai:gpt-oss-20b"),
     prompt: [
       "You are brief-desk, an engineering assistant.",
       "Use MCP tools to answer questions about GitHub workspaces (issues, PRs, commits)",
