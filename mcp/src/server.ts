@@ -490,6 +490,15 @@ app.get("/health", (_req, res) => {
     ok: true,
     mcp: "/mcp",
     service: "brief-desk-mcp",
+    version: "0.2.0",
+    tools: [
+      "brief_repo_ask",
+      "brief_repo_overview",
+      "brief_repo_file",
+      "brief_workspace",
+      "brief_corpus",
+      "stack_info",
+    ],
   });
 });
 
