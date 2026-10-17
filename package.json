@@ -1,0 +1,39 @@
+{
+  "name": "brief-desk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CopilotKit + AG-UI chat desk that drives workspace/corpus briefing tools over MCP",
+  "scripts": {
+    "dev": "concurrently -k -n ui,mcp -c blue,green \"npm run dev:ui\" \"npm run dev:mcp\"",
+    "dev:ui": "next dev --turbopack -p 3000",
+    "dev:mcp": "tsx mcp/src/server.ts",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test:mcp": "tsx --test mcp/src/server.test.ts"
+  },
+  "dependencies": {
+    "@ag-ui/client": "1.0.2",
+    "@copilotkit/react-core": "1.79.1",
+    "@copilotkit/react-ui": "1.79.1",
+    "@copilotkit/runtime": "1.79.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "hono": "^4.12.10",
+    "next": "15.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "concurrently": "^9.2.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  },
+  "overrides": {
+    "@ag-ui/client": "1.0.2",
+    "@ag-ui/core": "1.0.2"
+  }
+}

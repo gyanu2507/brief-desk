@@ -1,0 +1,123 @@
+{
+  "question": "risks",
+  "rewrite": "risks",
+  "subquestions": [
+    "risks",
+    "open p0 p1 bugs",
+    "incident webhook duplicate"
+  ],
+  "tool_calls": [
+    {
+      "tool": "search_issues",
+      "query": "risks",
+      "hits": 0
+    },
+    {
+      "tool": "search_pulls",
+      "query": "risks",
+      "hits": 0
+    },
+    {
+      "tool": "search_notes",
+      "query": "risks",
+      "hits": 0
+    },
+    {
+      "tool": "search_issues",
+      "query": "open p0 p1 bugs",
+      "hits": 5
+    },
+    {
+      "tool": "search_pulls",
+      "query": "open p0 p1 bugs",
+      "hits": 2
+    },
+    {
+      "tool": "search_notes",
+      "query": "open p0 p1 bugs",
+      "hits": 0
+    },
+    {
+      "tool": "search_issues",
+      "query": "incident webhook duplicate",
+      "hits": 1
+    },
+    {
+      "tool": "search_pulls",
+      "query": "incident webhook duplicate",
+      "hits": 1
+    }
+  ],
+  "evidence": [
+    {
+      "number": 38,
+      "title": "Webhook retries stampede Stripe",
+      "state": "open",
+      "updated": "2026-08-12",
+      "author": "arjun",
+      "snippet": "invoice.paid handler isn't idempotent. Stripe retry + our own 3x retry = 6 charges on a slow webhook. Need a processed_events table keyed on event id.  Saw this in the 7 Aug incident, ~40 duplicate invoices."
+    },
+    {
+      "number": 41,
+      "title": "Empty promo code 500s checkout",
+      "state": "open",
+      "updated": "2026-08-19",
+      "author": "meera",
+      "snippet": "POST /checkout dies with 500 if promo_code is \"\". We used to treat blank as no promo. Staging repro: add item, leave promo field empty (not omitted), pay.  Stack is in the thread. Happened twice for enterprise trial accounts this week."
+    },
+    {
+      "number": 18,
+      "title": "Document VAT for EU self-serve",
+      "state": "open",
+      "updated": "2026-08-02",
+      "author": "priya",
+      "snippet": "Legal wants a one-pager before we turn on EU. Blocked on tax vendor pick \u2014 still Stripe Tax vs. Avalara, no decision."
+    },
+    {
+      "number": 33,
+      "title": "Export CSV silently drops refunds",
+      "state": "closed",
+      "updated": "2026-07-28",
+      "author": "meera",
+      "snippet": "Finance noticed Q2 export didn't include refunds after 12 Jun. Fixed in #29. Left this open until they signed off \u2014 they did on 28 Jul."
+    },
+    {
+      "number": 22,
+      "title": "Q3 goal: cut checkout p95 under 400ms",
+      "state": "open",
+      "updated": "2026-06-04",
+      "author": "priya",
+      "snippet": "We're at ~620ms p95 on checkout. Biggest chunk is the promo service (sync HTTP). Plan was to cache by code, but empty-string bug (#41) should land first or we cache the bad path."
+    },
+    {
+      "number": 14,
+      "title": "Idempotent webhook consumer",
+      "state": "open",
+      "updated": "2026-08-14",
+      "author": "arjun",
+      "snippet": "Draft. Adds processed_events and bails if stripe event id is already there. Not wired to checkout yet. Depends on #38."
+    },
+    {
+      "number": 12,
+      "title": "Don't 500 on blank promo_code",
+      "state": "open",
+      "updated": "2026-08-20",
+      "author": "meera",
+      "snippet": "Treat null and \"\" as no code. Adds a test. Does not add caching \u2014 that's a follow up for #22."
+    }
+  ],
+  "memory_used": [],
+  "memory_written": [],
+  "citations": [
+    "#38",
+    "#41",
+    "#18",
+    "#33",
+    "#22",
+    "#14",
+    "#12"
+  ],
+  "answer": "Issues\n- Webhook retries stampede Stripe (open) [#38]: invoice.paid handler isn't idempotent. Stripe retry + our own 3x retry = 6 charges on a slow webhook. Need a processed_events table keyed on event id.\n- Empty promo code 500s checkout (open) [#41]: POST /checkout dies with 500 if promo_code is \"\". We used to treat blank as no promo. Staging repro: add item, leave promo field empty (not omitted), pay.\n- Document VAT for EU self-serve (open) [#18]: Legal wants a one-pager before we turn on EU. Blocked on tax vendor pick \u2014 still Stripe Tax vs. Avalara, no decision.\n- Export CSV silently drops refunds (closed) [#33]: Finance noticed Q2 export didn't include refunds after 12 Jun. Fixed in #29. Left this open until they signed off \u2014 they did on 28 Jul.\n- Q3 goal: cut checkout p95 under 400ms (open) [#22]: We're at ~620ms p95 on checkout. Biggest chunk is the promo service (sync HTTP). Plan was to cache by code, but empty-string bug (#41) should land first or we cache the bad path.\nPull requests\n- Idempotent webhook consumer (open) [#14]: Draft. Adds processed_events and bails if stripe event id is already there. Not wired to checkout yet. Depends on #38.\n- Don't 500 on blank promo_code (open) [#12]: Treat null and \"\" as no code. Adds a test. Does not add caching \u2014 that's a follow up for #22.",
+  "source": "fixture",
+  "repo": "sample"
+}

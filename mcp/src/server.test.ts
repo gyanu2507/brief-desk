@@ -1,0 +1,35 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
+
+const PORT = 3119;
+
+test("MCP health endpoint comes up", async () => {
+  const child = spawn("npx", ["tsx", "mcp/src/server.ts"], {
+    cwd: new URL("../..", import.meta.url).pathname,
+    env: { ...process.env, MCP_PORT: String(PORT) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  try {
+    let ready = false;
+    for (let i = 0; i < 40; i++) {
+      await sleep(150);
+      try {
+        const res = await fetch(`http://127.0.0.1:${PORT}/health`);
+        if (res.ok) {
+          const body = (await res.json()) as { ok: boolean };
+          assert.equal(body.ok, true);
+          ready = true;
+          break;
+        }
+      } catch {
+        // still booting
+      }
+    }
+    assert.equal(ready, true, "MCP health did not become ready");
+  } finally {
+    child.kill("SIGTERM");
+  }
+});
