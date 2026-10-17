@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useCopilotMessagesContext } from "@copilotkit/react-core";
+import { useEffect, useRef, useState } from "react";
+import { useAgent, UseAgentUpdate } from "@copilotkit/react-core/v2";
 
 type LogEntry = {
   id: string;
   t: number;
-  kind: "user" | "route" | "tool" | "result" | "answer" | "error";
+  kind: "user" | "route" | "tool" | "result" | "answer" | "error" | "status";
   title: string;
   detail?: string;
 };
@@ -20,6 +20,24 @@ type ToolCall = {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function messageContent(msg: Record<string, unknown>): string {
+  const content = msg.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        const p = asRecord(part);
+        if (!p) return "";
+        if (typeof p.text === "string") return p.text;
+        if (typeof p.content === "string") return p.content;
+        return "";
+      })
+      .join("");
+  }
+  return "";
 }
 
 function toolName(call: ToolCall): string {
@@ -76,7 +94,7 @@ function activeStages(entries: LogEntry[]): Set<string> {
   if (!entries.length) return active;
   const last = entries[entries.length - 1];
   active.add("ui");
-  if (last.kind === "user") {
+  if (last.kind === "user" || last.kind === "status") {
     active.add("api");
     active.add("agent");
   } else if (last.kind === "tool" || last.kind === "route") {
@@ -99,10 +117,89 @@ function activeStages(entries: LogEntry[]): Set<string> {
   return active;
 }
 
+function buildEntries(messages: unknown[], runtimeErrors: LogEntry[]): LogEntry[] {
+  const out: LogEntry[] = [];
+  let n = 0;
+  const push = (partial: Omit<LogEntry, "id" | "t">) => {
+    out.push({ id: `e-${n++}`, t: Date.now(), ...partial });
+  };
+
+  for (const raw of messages) {
+    const msg = asRecord(raw);
+    if (!msg) continue;
+    // AG-UI: absent role means assistant.
+    const role = String(msg.role || "assistant");
+    const content = messageContent(msg);
+
+    if (role === "user") {
+      push({
+        kind: "user",
+        title: "User → chat",
+        detail: content.slice(0, 140) || "(empty)",
+      });
+      push({
+        kind: "route",
+        title: "Route",
+        detail: "UI → POST /api/copilotkit (single-route agent/run) → BuiltInAgent",
+      });
+      continue;
+    }
+
+    if (role === "system" || role === "developer" || role === "activity" || role === "reasoning") {
+      continue;
+    }
+
+    if (role === "assistant") {
+      const calls = (msg.toolCalls || msg.tool_calls || []) as ToolCall[];
+      if (Array.isArray(calls) && calls.length) {
+        for (const call of calls) {
+          const name = toolName(call);
+          const args = summarizeArgs(call.function?.arguments);
+          push({
+            kind: "tool",
+            title: `Tool ${name}`,
+            detail: `${routeForTool(name)}${args ? ` · ${args}` : ""}`,
+          });
+        }
+      }
+      if (content.trim()) {
+        push({
+          kind: "answer",
+          title: "Assistant reply",
+          detail: content.slice(0, 160) + (content.length > 160 ? "…" : ""),
+        });
+      }
+      continue;
+    }
+
+    if (role === "tool") {
+      const name =
+        typeof msg.name === "string"
+          ? msg.name
+          : typeof msg.toolCallId === "string"
+            ? `toolCall ${msg.toolCallId.slice(0, 8)}`
+            : "tool";
+      const body = content || (msg.content != null ? String(msg.content) : "");
+      const err = body.includes("failed:") || body.includes('"isError":true') || body.includes("isError");
+      push({
+        kind: err ? "error" : "result",
+        title: err ? `Tool error ← ${name}` : `Result ← ${name}`,
+        detail: truncateOneLine(body || JSON.stringify(msg.content ?? ""), 160),
+      });
+    }
+  }
+  return [...out, ...runtimeErrors];
+}
+
 export function AgentLog() {
-  const { messages } = useCopilotMessagesContext();
+  // AG-UI / single-route keeps the live transcript on the agent, not MessagesContext.
+  const { agent, isReady } = useAgent({
+    agentId: "default",
+    updates: [UseAgentUpdate.OnMessagesChanged, UseAgentUpdate.OnRunStatusChanged],
+  });
   const bottomRef = useRef<HTMLDivElement>(null);
   const [runtimeErrors, setRuntimeErrors] = useState<LogEntry[]>([]);
+  const [runHint, setRunHint] = useState<LogEntry | null>(null);
 
   useEffect(() => {
     const onErr = (ev: Event) => {
@@ -123,85 +220,54 @@ export function AgentLog() {
     return () => window.removeEventListener("brief-desk-error", onErr);
   }, []);
 
-  const entries = useMemo(() => {
-    const out: LogEntry[] = [];
-    let n = 0;
-    const push = (partial: Omit<LogEntry, "id" | "t">) => {
-      out.push({ id: `e-${n++}`, t: Date.now(), ...partial });
-    };
-
-    for (const raw of messages as unknown[]) {
-      const msg = asRecord(raw);
-      if (!msg) continue;
-      const role = String(msg.role || "");
-      const content =
-        typeof msg.content === "string"
-          ? msg.content
-          : Array.isArray(msg.content)
-            ? msg.content
-                .map((part) => {
-                  const p = asRecord(part);
-                  return typeof p?.text === "string" ? p.text : "";
-                })
-                .join("")
-            : "";
-
-      if (role === "user") {
-        push({
-          kind: "user",
-          title: "User → chat",
-          detail: content.slice(0, 140) || "(empty)",
+  useEffect(() => {
+    if (!isReady) return;
+    const { unsubscribe } = agent.subscribe({
+      onRunInitialized: () => {
+        setRunHint({
+          id: `run-${Date.now()}`,
+          t: Date.now(),
+          kind: "status",
+          title: "Agent run started",
+          detail: "BuiltInAgent → MCP tools → stream reply",
         });
-        push({
-          kind: "route",
-          title: "Route",
-          detail: "UI → POST /api/copilotkit (single-route agent/run) → BuiltInAgent",
-        });
-        continue;
-      }
+      },
+      onRunFinalized: () => {
+        setRunHint(null);
+      },
+      onRunFailed: ({ error }) => {
+        const message = error instanceof Error ? error.message : String(error ?? "run failed");
+        setRuntimeErrors((prev) => [
+          ...prev.slice(-19),
+          {
+            id: `rf-${Date.now()}`,
+            t: Date.now(),
+            kind: "error",
+            title: "Agent run failed",
+            detail: truncateOneLine(message, 200),
+          },
+        ]);
+        setRunHint(null);
+      },
+    });
+    return unsubscribe;
+  }, [agent, isReady]);
 
-      if (role === "assistant") {
-        const calls = (msg.toolCalls || msg.tool_calls || []) as ToolCall[];
-        if (Array.isArray(calls) && calls.length) {
-          for (const call of calls) {
-            const name = toolName(call);
-            push({
-              kind: "tool",
-              title: `Tool ${name}`,
-              detail: `${routeForTool(name)}${summarizeArgs(call.function?.arguments) ? ` · ${summarizeArgs(call.function?.arguments)}` : ""}`,
-            });
-          }
-        }
-        if (content.trim()) {
-          push({
-            kind: "answer",
-            title: "Assistant reply",
-            detail: content.slice(0, 160) + (content.length > 160 ? "…" : ""),
-          });
-        }
-        continue;
-      }
-
-      if (role === "tool") {
-        const name = typeof msg.name === "string" ? msg.name : "tool";
-        const err =
-          typeof msg.content === "string" &&
-          (msg.content.includes("failed:") || msg.content.includes('"isError":true'));
-        push({
-          kind: err ? "error" : "result",
-          title: err ? `Tool error ← ${name}` : `Result ← ${name}`,
-          detail: truncateOneLine(typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content), 160),
-        });
-      }
-    }
-    return [...out, ...runtimeErrors];
-  }, [messages, runtimeErrors]);
-
+  // Do not memoize on `agent.messages`: AG-UI mutates that array in place.
+  // useAgent's OnMessagesChanged force-render is what keeps this fresh.
+  const messages = agent.messages ?? [];
+  const built = buildEntries(messages as unknown[], runtimeErrors);
+  const entries = runHint ? [...built, runHint] : built;
   const stages = activeStages(entries);
+  const fingerprint = `${messages.length}:${built.length}:${runtimeErrors.length}:${runHint?.id ?? ""}:${
+    typeof messages[messages.length - 1]?.content === "string"
+      ? String(messages[messages.length - 1]?.content).length
+      : ""
+  }`;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [entries.length]);
+  }, [fingerprint]);
 
   return (
     <aside
@@ -220,6 +286,7 @@ export function AgentLog() {
         </p>
         <p style={{ margin: "6px 0 0", fontSize: 13, color: "#cbd5e1", lineHeight: 1.4 }}>
           Live path: UI → runtime → MCP → backends
+          {!isReady ? " · connecting…" : ""}
         </p>
       </div>
 
@@ -318,6 +385,8 @@ function colorFor(kind: LogEntry["kind"]): string {
       return "#e2e8f0";
     case "error":
       return "#f87171";
+    case "status":
+      return "#c084fc";
   }
 }
 
