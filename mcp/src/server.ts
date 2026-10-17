@@ -248,19 +248,7 @@ async function fetchRepoAsk(repo: string, question: string): Promise<string> {
   let text = JSON.stringify(pack, null, 2);
   // Hard cap for Groq free TPM (~8k). Leave room for the model prompt/tools.
   if (text.length > 14000) {
-    pack.readme = truncate(readme, 2000);
-    if (pack.code && "items" in pack.code) {
-      const items = (pack.code.items || [])
-        .filter((it): it is { path: string; url?: string; fragment?: string; preview?: string } => !!it.path)
-        .map((it) => ({
-          path: it.path,
-          url: it.url,
-          fragment: it.fragment,
-          preview: truncate(it.preview || "", 800),
-        }));
-      pack.code = { ...pack.code, items };
-    }
-    text = JSON.stringify(pack, null, 2);
+    text = JSON.stringify({ ...pack, readme: truncate(readme, 1800), code: { note: "omitted to fit model limit; use brief_repo_file" } }, null, 2);
   }
   if (text.length > 14000) {
     text = truncate(text, 14000);
