@@ -137,7 +137,18 @@ function createBriefMcpServer(): McpServer {
   return server;
 }
 
-const app = createMcpExpressApp();
+const allowedHosts = [
+  "localhost",
+  "127.0.0.1",
+  "brief-desk.onrender.com",
+  ...(process.env.MCP_ALLOWED_HOSTS?.split(",").map((h) => h.trim()).filter(Boolean) ?? []),
+];
+
+// host must not stay at the SDK default (127.0.0.1) or Render's Host header is rejected.
+const app = createMcpExpressApp({
+  host: "0.0.0.0",
+  allowedHosts,
+});
 
 app.get("/health", (_req, res) => {
   res.status(200).json({
