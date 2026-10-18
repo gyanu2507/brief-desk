@@ -94,6 +94,7 @@ export default function Page() {
   const [mcpVersion, setMcpVersion] = useState<string>("");
   const [mcpTools, setMcpTools] = useState<string[]>([]);
   const [busyNote, setBusyNote] = useState<string | null>(null);
+  const [pipelineBusy, setPipelineBusy] = useState(false);
   const [promptUi, setPromptUi] = useState<PromptUi>(FALLBACK_UI);
   const [promptRoutes, setPromptRoutes] = useState<string[]>([
     "auto",
@@ -231,6 +232,20 @@ export default function Page() {
     return () => window.clearTimeout(id);
   }, [isLoading]);
 
+  useEffect(() => {
+    const active = pipelineBusy || isLoading;
+    window.dispatchEvent(
+      new CustomEvent("brief-desk-processing", {
+        detail: {
+          active,
+          note: active
+            ? busyNote || (pipelineBusy ? "Gathering evidence and drafting…" : "Agent thinking…")
+            : null,
+        },
+      }),
+    );
+  }, [pipelineBusy, isLoading, busyNote]);
+
   const hasBriefAuto = mcpTools.includes("brief_auto");
   const hasOrchestrate = mcpTools.includes("brief_orchestrate");
   const mcpReady = mcpOk === true && hasOrchestrate;
@@ -267,7 +282,6 @@ export default function Page() {
     (source === "compare" && Boolean(repo) && Boolean(repoB)) ||
     source === "corpus";
 
-  const [pipelineBusy, setPipelineBusy] = useState(false);
   const canRun = ready && !mcpBlocked && !isLoading && !pipelineBusy;
 
   const runBrief = useCallback(
@@ -743,22 +757,6 @@ export default function Page() {
         </aside>
 
         <section className="desk-main">
-          {busyNote || pipelineBusy || isLoading ? (
-            <div
-              style={{
-                margin: "12px 12px 0",
-                padding: "8px 12px",
-                borderRadius: 8,
-                background: "#0f172a",
-                color: "#e2e8f0",
-                fontSize: 12,
-                flexShrink: 0,
-              }}
-            >
-              {busyNote || (pipelineBusy ? "Running brief pipeline…" : "Chat agent running…")}
-            </div>
-          ) : null}
-
           <div style={{ flex: 1, minHeight: 0 }} className="desk-chat">
             <CopilotChat
               labels={{

@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -15,6 +16,11 @@ type TranscriptState = {
   messages: unknown[];
   inProgress: boolean;
   updatedAt: number;
+};
+
+type ProcessingState = {
+  active: boolean;
+  note: string | null;
 };
 
 const TranscriptContext = createContext<TranscriptState>({
@@ -52,9 +58,23 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
   return <TranscriptContext.Provider value={value}>{children}</TranscriptContext.Provider>;
 }
 
+function ProcessingBubble({ note }: { note: string }) {
+  return (
+    <div className="processing-bubble" role="status" aria-live="polite">
+      <span className="processing-dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+      <span className="processing-note">{note}</span>
+    </div>
+  );
+}
+
 /**
  * Drop-in CopilotChat Messages renderer. Mirrors stock Messages (reads the live
  * agent via useCopilotChatInternal) and publishes that transcript for AgentLog.
+ * Also shows an in-chat processing bubble while brief-run / agent is busy.
  */
 export function LoggingMessages({
   inProgress,
@@ -73,6 +93,11 @@ export function LoggingMessages({
   chatError,
 }: MessagesProps) {
   const { messages: visibleMessages, interrupt } = useCopilotChatInternal();
+  const [processing, setProcessing] = useState<ProcessingState>({
+    active: false,
+    note: null,
+  });
+  const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     window.dispatchEvent(
@@ -85,6 +110,28 @@ export function LoggingMessages({
       }),
     );
   }, [visibleMessages, inProgress]);
+
+  useEffect(() => {
+    const onProcessing = (ev: Event) => {
+      const detail = (ev as CustomEvent<ProcessingState>).detail;
+      setProcessing({
+        active: Boolean(detail?.active),
+        note: typeof detail?.note === "string" ? detail.note : null,
+      });
+    };
+    window.addEventListener("brief-desk-processing", onProcessing);
+    return () => window.removeEventListener("brief-desk-processing", onProcessing);
+  }, []);
+
+  const showBubble = processing.active || Boolean(inProgress);
+  const note =
+    processing.note ||
+    (inProgress ? "Agent thinking…" : "Working on your brief…");
+
+  useEffect(() => {
+    if (!showBubble) return;
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [showBubble, note, visibleMessages?.length]);
 
   return (
     <div className="copilotKitMessages">
@@ -108,6 +155,8 @@ export function LoggingMessages({
             markdownTagRenderers={markdownTagRenderers}
           />
         ))}
+        {showBubble ? <ProcessingBubble note={note} /> : null}
+        <div ref={endRef} />
         {interrupt}
         {chatError && ErrorMessage ? (
           <ErrorMessage error={chatError} isCurrentMessage={true} />
