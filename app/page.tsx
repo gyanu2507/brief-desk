@@ -6,12 +6,23 @@ import { CopilotChat } from "@copilotkit/react-ui";
 import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
 import { AgentLog } from "./AgentLog";
 import { BrandMark } from "./BrandMark";
+import { BriefExportBar } from "./BriefExportBar";
+import { BriefHistory } from "./BriefHistory";
 import { PlanBoard } from "./PlanBoard";
 import { RepoCombobox } from "./RepoCombobox";
 import { ThemeToggle } from "./theme";
 import { ToolCards } from "./ToolCards";
 import { TrendingPicker, type TrendingRow } from "./TrendingPicker";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
+import {
+  historyLabel,
+  loadBriefHistory,
+  pushBriefHistory,
+  saveBriefHistory,
+  type BriefHistoryEntry,
+} from "../lib/brief-history";
+import { evalOverallScore } from "../lib/brief-run";
+import { runBriefViaApi } from "../lib/brief-run-client";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
 import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
@@ -109,6 +120,8 @@ export default function Page() {
   const [trendingSeed, setTrendingSeed] = useState<TrendingRow[]>([]);
   const [goalInput, setGoalInput] = useState(DEFAULT_AUTO_GOAL);
   const [saved, setSaved] = useState<SavedBrief[]>([]);
+  const [history, setHistory] = useState<BriefHistoryEntry[]>([]);
+  const [lastMarkdown, setLastMarkdown] = useState<string | null>(null);
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
   const [mcpVersion, setMcpVersion] = useState<string>("");
   const [mcpTools, setMcpTools] = useState<string[]>([]);
@@ -132,6 +145,7 @@ export default function Page() {
 
   useEffect(() => {
     try {
+      setHistory(loadBriefHistory());
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) {
         const legacy = localStorage.getItem("brief-desk-repo");
@@ -166,6 +180,10 @@ export default function Page() {
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    saveBriefHistory(history);
+  }, [history]);
 
   useEffect(() => {
     try {
@@ -278,9 +296,14 @@ export default function Page() {
 
   const hasBriefAuto = mcpTools.includes("brief_auto");
   const hasOrchestrate = mcpTools.includes("brief_orchestrate");
+  const hasTrendingTool = mcpTools.includes("brief_github_trending");
   const mcpReady = mcpOk === true && hasOrchestrate;
   // Keep controls usable while the first health ping is in flight.
   const mcpBlocked = mcpOk === false || (mcpOk === true && !hasOrchestrate);
+  const mcpVersionWarn =
+    mcpOk === true && source === "trending" && !hasTrendingTool
+      ? `MCP v${mcpVersion || "?"} is missing brief_github_trending. Redeploy Render (Dockerfile) to 0.9.0+.`
+      : null;
 
   const contextValue = useMemo(() => {
     const note = sessionNote(promptUi, { source, mode, repo, repoB, url });
@@ -407,10 +430,8 @@ export default function Page() {
           followUp: false,
         });
 
-        const res = await fetch("/api/brief-run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const body = await runBriefViaApi(
+          {
             source: s,
             mode: m,
             repo: r,
@@ -420,45 +441,100 @@ export default function Page() {
             since: s === "trending" ? since : undefined,
             question: s === "auto" || s === "trending" ? g || question : question,
             goal: s === "auto" || s === "trending" ? g || question : undefined,
-          }),
-          signal: controller.signal,
-        });
-        const body = (await res.json()) as {
-          ok?: boolean;
-          answer?: string;
-          steps?: string[];
-          error?: string;
-          ms?: number;
-          eval?: { pass?: boolean; scores?: { overall?: number } };
-          repos?: TrendingRow[];
-        };
-        if (!res.ok || !body.ok || !body.answer) {
+          },
+          {
+            signal: controller.signal,
+            onStep: (step, stepsSoFar) => {
+              setBusyNote(`${stepsSoFar.join(" → ")}…`);
+              const expected = expectedSteps(s, hasBriefAuto);
+              const done = new Set(stepsSoFar);
+              emitPlan({
+                active: true,
+                note: step,
+                steps: expected.map((row) => {
+                  if (done.has(row.label) || stepsSoFar.some((x) => row.label.startsWith(x))) {
+                    return { ...row, state: "done" as const };
+                  }
+                  if (row.label === step || row.label.includes(step)) {
+                    return { ...row, state: "active" as const };
+                  }
+                  const idx = expected.findIndex((e) => e.id === row.id);
+                  const activeIdx = expected.findIndex(
+                    (e) => e.label === step || e.label.includes(step),
+                  );
+                  if (activeIdx >= 0 && idx < activeIdx) {
+                    return { ...row, state: "done" as const };
+                  }
+                  if (activeIdx >= 0 && idx === activeIdx) {
+                    return { ...row, state: "active" as const };
+                  }
+                  return row;
+                }),
+              });
+            },
+          },
+        );
+        if (!body.ok || !body.answer) {
           throw new Error(body.error || "brief-run failed");
         }
         if (Array.isArray(body.repos) && body.repos.length) {
           setTrendingSeed(body.repos);
         }
+        const evalScore = evalOverallScore(body.eval);
         const score =
-          typeof body.eval?.scores?.overall === "number"
-            ? `eval ${body.eval.scores.overall}`
-            : body.eval?.pass === true
+          evalScore != null
+            ? `eval ${evalScore}`
+            : body.eval &&
+                typeof body.eval === "object" &&
+                "pass" in body.eval &&
+                (body.eval as { pass?: boolean }).pass === true
               ? "eval pass"
               : null;
         const meta = [`${(body.steps || []).join(" → ")}`, score, `${body.ms ?? "?"}ms`]
           .filter(Boolean)
           .join(" · ");
         const markdown = formatBriefMarkdown(body.answer, meta);
+        setLastMarkdown(markdown);
+        setHistory((prev) =>
+          pushBriefHistory(prev, {
+            source: s,
+            mode: s === "compare" ? "general" : m,
+            label: historyLabel({
+              source: s,
+              repo: r,
+              goal: g,
+              question: userFacing,
+            }),
+            question: userFacing,
+            answer: body.answer,
+            markdown,
+            meta,
+            repo: r || undefined,
+            repoB: rB || undefined,
+            url: u || undefined,
+            goal: s === "auto" || s === "trending" ? g || undefined : undefined,
+            steps: body.steps,
+            evalScore,
+            ms: body.ms,
+          }),
+        );
         await appendMessage(new TextMessage({ role: Role.Assistant, content: markdown }), {
           followUp: false,
         });
         emitPlan({
           active: false,
-          note: `${body.ms ?? "?"}ms`,
+          note: `${body.ms ?? "?"}ms${score ? ` · ${score}` : ""}`,
           steps: stepsFromNames(body.steps || ["done"]),
         });
         window.dispatchEvent(
           new CustomEvent("brief-desk-answer", {
-            detail: { answer: body.answer, steps: body.steps, ms: body.ms, repos: body.repos },
+            detail: {
+              answer: body.answer,
+              steps: body.steps,
+              ms: body.ms,
+              repos: body.repos,
+              evalScore,
+            },
           }),
         );
       } catch (e) {
@@ -529,6 +605,38 @@ export default function Page() {
     },
     [runBrief],
   );
+
+  const openHistoryEntry = useCallback(
+    async (entry: BriefHistoryEntry) => {
+      setSource(entry.source);
+      setMode(entry.mode);
+      if (entry.repo) setRepoInput(entry.repo);
+      if (entry.repoB) setRepoBInput(entry.repoB);
+      if (entry.url) setUrlInput(entry.url);
+      if (entry.goal) setGoalInput(entry.goal);
+      setLastMarkdown(entry.markdown);
+      await appendMessage(
+        new TextMessage({
+          role: Role.User,
+          content: entry.question || entry.label,
+        }),
+        { followUp: false },
+      ).catch(() => undefined);
+      await appendMessage(
+        new TextMessage({ role: Role.Assistant, content: entry.markdown }),
+        { followUp: false },
+      ).catch(() => undefined);
+    },
+    [appendMessage],
+  );
+
+  const copyMarkdown = useCallback(async (markdown: string) => {
+    try {
+      await navigator.clipboard.writeText(markdown);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const pinSession = () => {
     if (!ready) return;
@@ -672,6 +780,16 @@ export default function Page() {
             />
             {mcpLabel}
           </div>
+          {mcpVersionWarn ? (
+            <p className="mcp-warn" role="status">
+              {mcpVersionWarn}
+            </p>
+          ) : null}
+
+          <BriefExportBar
+            markdown={lastMarkdown}
+            filename={`brief-${source}-${Date.now()}`}
+          />
 
           <p className="section-label">Source</p>
           <div className="source-grid">
@@ -874,6 +992,16 @@ export default function Page() {
           >
             Save session shortcut
           </button>
+
+          <BriefHistory
+            entries={history}
+            onOpen={(e) => void openHistoryEntry(e)}
+            onClear={() => {
+              setHistory([]);
+              saveBriefHistory([]);
+            }}
+            onCopy={(md) => void copyMarkdown(md)}
+          />
 
           <p className="section-label" style={{ marginTop: 18 }}>
             Demos

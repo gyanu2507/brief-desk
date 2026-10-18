@@ -29,7 +29,8 @@ Browser
 - **Repo search** (`brief_github_search`): GitHub Search API shortlists
 - **Releases + security** (`brief_repo_releases`, `brief_repo_security`)
 - **In-chat tool cards** for MCP calls on the free-form path
-- **Live plan board** + **Cancel run** on the control panel
+- **Live plan board** (SSE step events) + **Cancel run**
+- **Brief history** (reopen / copy / download `.md`)
 - **Light / dark / system** theme
 - Bundled sample corpus under `mcp/corpus/` (no separate packages)
 

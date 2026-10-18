@@ -144,10 +144,27 @@ async function draftWithGroq(question: string, evidence: string): Promise<string
   throw new Error(lastErr);
 }
 
+export type BriefRunOptions = {
+  onStep?: (step: string, stepsSoFar: string[]) => void;
+};
+
+function pushStep(
+  steps: string[],
+  name: string,
+  onStep?: BriefRunOptions["onStep"],
+): void {
+  steps.push(name);
+  onStep?.(name, [...steps]);
+}
+
 /** Deterministic gather → draft → eval path (no multi-step agent loop). */
-export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunResult> {
+export async function runBriefPipeline(
+  input: BriefRunInput,
+  opts?: BriefRunOptions,
+): Promise<BriefRunResult> {
   const t0 = Date.now();
   const steps: string[] = [];
+  const onStep = opts?.onStep;
   const question = (input.goal || input.question).trim();
   if (question.length < 4) {
     return { ok: false, answer: "", steps, error: "question/goal required", ms: 0 };
@@ -156,10 +173,10 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
   let evidence = "";
   try {
     if (input.source === "auto") {
-      steps.push("brief_auto");
+      pushStep(steps, "brief_auto", onStep);
       const auto = await callMcpTool("brief_auto", { goal: question });
       if (!auto.ok) {
-        steps.push("brief_plan");
+        pushStep(steps, "brief_plan", onStep);
         const plan = await callMcpTool("brief_plan", { goal: question });
         if (!plan.ok) {
           return {
@@ -181,7 +198,7 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
         } catch {
           invented = {};
         }
-        steps.push("brief_orchestrate");
+        pushStep(steps, "brief_orchestrate", onStep);
         const orch = await callMcpTool("brief_orchestrate", {
           question,
           repo: invented.repo || undefined,
@@ -203,7 +220,7 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
         evidence = auto.text;
       }
     } else if (input.source === "corpus") {
-      steps.push("brief_corpus");
+      pushStep(steps, "brief_corpus", onStep);
       const corpus = await callMcpTool("brief_corpus", { question });
       if (!corpus.ok) {
         return {
@@ -216,7 +233,7 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
       }
       evidence = corpus.text;
     } else if (input.source === "trending") {
-      steps.push("brief_github_trending");
+      pushStep(steps, "brief_github_trending", onStep);
       const trend = await callMcpTool("brief_github_trending", {
         language: input.language || undefined,
         since: input.since || "weekly",
@@ -233,7 +250,7 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
       }
       evidence = trend.text;
     } else {
-      steps.push("brief_orchestrate");
+      pushStep(steps, "brief_orchestrate", onStep);
       const orch = await callMcpTool("brief_orchestrate", {
         question,
         repo: input.repo || undefined,
@@ -253,10 +270,10 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
       evidence = orch.text;
     }
 
-    steps.push("draft");
+    pushStep(steps, "draft", onStep);
     let draft = await draftWithGroq(question, evidence);
 
-    steps.push("brief_eval");
+    pushStep(steps, "brief_eval", onStep);
     const ev = await callMcpTool("brief_eval", {
       question,
       draft,
@@ -275,7 +292,7 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
       (evalObj as { pass?: boolean }).pass === true;
 
     if (!pass) {
-      steps.push("revise");
+      pushStep(steps, "revise", onStep);
       draft = await draftWithGroq(
         `${question}\n\nRevise this draft using the evidence. Keep citations.\n\nDraft:\n${draft}`,
         evidence,
@@ -300,4 +317,10 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
       ms: Date.now() - t0,
     };
   }
+}
+
+export function evalOverallScore(evalObj: unknown): number | null {
+  if (!evalObj || typeof evalObj !== "object") return null;
+  const scores = (evalObj as { scores?: { overall?: unknown } }).scores;
+  return typeof scores?.overall === "number" ? scores.overall : null;
 }

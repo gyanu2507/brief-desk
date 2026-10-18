@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -11,8 +12,11 @@ import httpx
 
 from brief_desk_mcp.github_tools import FETCH_TIMEOUT_MS, github_json, truncate
 
-TRENDING_TTL_NOTE = "Live scrape of github.com/trending (no official API)."
+TRENDING_TTL_NOTE = "Cached scrape of github.com/trending (TTL ~12 min; no official API)."
+TRENDING_CACHE_TTL_MS = 12 * 60 * 1000
 SINCE_MAP = {"daily": "daily", "week": "weekly", "weekly": "weekly", "month": "monthly", "monthly": "monthly"}
+
+_trending_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 def _normalize_since(since: str | None) -> str:
@@ -87,6 +91,12 @@ async def fetch_trending(
     limit = max(1, min(max_results, 25))
     path = f"/trending/{lang}" if lang else "/trending"
     url = f"https://github.com{path}?{urlencode({'since': period})}"
+    cache_key = f"{period}:{lang or 'any'}:{limit}"
+    cached = _trending_cache.get(cache_key)
+    if cached and time.time() * 1000 < cached[0]:
+        hit = dict(cached[1])
+        hit["cached"] = True
+        return hit
 
     timeout = max(FETCH_TIMEOUT_MS / 1000.0, 12.0)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -104,18 +114,20 @@ async def fetch_trending(
             "language": language,
             "since": period,
             "repos": [],
+            "cached": False,
             "error": f"trending fetch failed ({res.status_code})",
             "guidance": "Retry later, or use brief_github_search as a stars/created fallback.",
         }
 
     repos = _parse_trending_html(res.text, limit)
-    return {
+    payload = {
         "source": "github_trending",
         "url": url,
         "language": language or "any",
         "since": period,
         "count": len(repos),
         "repos": repos,
+        "cached": False,
         "note": TRENDING_TTL_NOTE,
         "guidance": (
             "Rank or shortlist from repos[]. Cite github.com/trending and each repo URL. "
@@ -124,6 +136,11 @@ async def fetch_trending(
             else "No repos parsed. Try another language/since or brief_github_search."
         ),
     }
+    if repos:
+        _trending_cache[cache_key] = (time.time() * 1000 + TRENDING_CACHE_TTL_MS, payload)
+        if len(_trending_cache) > 40:
+            _trending_cache.pop(next(iter(_trending_cache)), None)
+    return payload
 
 
 async def search_github_repos(
