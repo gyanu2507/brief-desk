@@ -43,44 +43,64 @@ function resolveModelId(): string {
   return MODEL_ALIASES[id] ?? id;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function draftWithGroq(question: string, evidence: string): Promise<string> {
   const key = process.env.OPENAI_API_KEY;
   const base = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
   const model = resolveModelId();
   if (!key) throw new Error("OPENAI_API_KEY missing for brief-run draft");
 
-  const res = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You write concise engineering briefs from evidence only. Cite paths, #issue/#PR, or URLs. Start with one line: Plan: <source> · <mode> · <targets>. No tool calls. No preamble.",
-        },
-        {
-          role: "user",
-          content: `Question:\n${question}\n\nEvidence pack (JSON/text):\n${truncate(evidence, 10000)}\n\nWrite the final brief now.`,
-        },
-      ],
-      max_tokens: 900,
-      temperature: 0.2,
-    }),
-    signal: AbortSignal.timeout(45_000),
-  });
-  const body = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-    error?: { message?: string };
+  const payload = {
+    model,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You write concise engineering briefs from evidence only. Cite paths, #issue/#PR, or URLs. Start with one line: Plan: <source> · <mode> · <targets>. No tool calls. No preamble.",
+      },
+      {
+        role: "user",
+        content: `Question:\n${question}\n\nEvidence pack (JSON/text):\n${truncate(evidence, 8000)}\n\nWrite the final brief now.`,
+      },
+    ],
+    // Keep OTPM headroom on Groq free tier.
+    max_tokens: 550,
+    temperature: 0.2,
   };
-  if (!res.ok) throw new Error(body.error?.message || `draft failed (${res.status})`);
-  const content = body.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("draft model returned empty content");
-  return content;
+
+  let lastErr = "draft failed";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(45_000),
+    });
+    const body = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      error?: { message?: string };
+    };
+    if (res.ok) {
+      const content = body.choices?.[0]?.message?.content?.trim();
+      if (!content) throw new Error("draft model returned empty content");
+      return content;
+    }
+    lastErr = body.error?.message || `draft failed (${res.status})`;
+    const retryable = res.status === 429 || /rate limit|try again/i.test(lastErr);
+    if (!retryable || attempt === 3) break;
+    const waitMatch = /try again in ([\d.]+)s/i.exec(lastErr);
+    const waitMs = waitMatch
+      ? Math.min(45_000, Math.ceil(Number(waitMatch[1]) * 1000) + 500)
+      : 8_000 * (attempt + 1);
+    await sleep(waitMs);
+  }
+  throw new Error(lastErr);
 }
 
 /** Deterministic gather → draft → eval path (no multi-step agent loop). */
