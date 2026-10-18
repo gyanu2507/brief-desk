@@ -1,7 +1,7 @@
 # brief-desk
 
-One-repo engineering briefing app: multi-source control panel, CopilotKit chat,
-AG-UI streaming, MCP tools, and a deterministic **gather → draft → eval** run path.
+One-repo engineering briefing app: Next.js UI + **Python MCP backend**,
+CopilotKit chat, AG-UI streaming, and a deterministic **gather → draft → eval** path.
 
 ```
 Browser
@@ -10,7 +10,7 @@ Browser
     └─ Free-form chat     →  CopilotKit → MCP tools
                 │
                 ▼
-         brief-desk MCP (this repo)
+         Python MCP (backend/)
            ├── brief_auto / brief_orchestrate
            ├── brief_eval
            ├── brief_fetch_url
@@ -18,7 +18,7 @@ Browser
            └── brief_corpus  →  mcp/corpus/*.md
 ```
 
-No `workspace-brief` or `corpus-brief` installs. Corpus sample docs ship under `mcp/corpus/`.
+Corpus sample docs ship under `mcp/corpus/`. No separate workspace/corpus packages.
 
 ## Setup
 
@@ -27,7 +27,11 @@ cd brief-desk
 cp .env.example .env.local
 # OPENAI_API_KEY = Groq key (https://console.groq.com)
 npm install
+# Python MCP (uv installs deps from backend/pyproject.toml)
+cd backend && uv sync && cd ..
 ```
+
+Requires [uv](https://github.com/astral-sh/uv) and Python 3.11+.
 
 ## Run
 
@@ -36,7 +40,9 @@ npm run dev
 ```
 
 - UI: http://localhost:3000
-- MCP health: http://127.0.0.1:3108/health
+- Python MCP health: http://127.0.0.1:3108/health (`runtime: python`, `version: 0.7.0`)
+
+Legacy TypeScript MCP (optional): `npm run dev:mcp:ts`
 
 ### Sources
 
@@ -48,9 +54,6 @@ npm run dev
 | Compare | two repos | side-by-side |
 | Corpus | none | bundled `mcp/corpus` docs |
 
-Queries and demos sit in the left panel above the fold. **Run agent** uses
-`POST /api/prompts` templates plus `POST /api/brief-run` so a brief always returns.
-
 ## Verify
 
 ```bash
@@ -61,16 +64,16 @@ curl -s -X POST http://localhost:3000/api/brief-run \
   -d '{"source":"auto","goal":"Brief facebook/react risks","question":"Brief facebook/react risks"}'
 ```
 
-**Render:** Manual Deploy after MCP changes. Target `version` ≥ `0.6.0`.
+**Render:** deploy with the root `Dockerfile` (Python MCP). After deploy, `/health` should show `"runtime":"python"` and `"version":"0.7.0"`.
 
 ## Stack
 
 | Layer | Notes |
 |---|---|
-| UI | CopilotKit React + control panel |
+| UI | CopilotKit React + control panel (Next.js / Vercel) |
 | Run path | `/api/brief-run` (deterministic) |
-| Runtime | BuiltInAgent + MCP over AG-UI (chat) |
-| Tools | All in `mcp/src` + `mcp/corpus` |
+| Tools backend | Python MCP Streamable HTTP (`backend/`) |
+| Corpus | `mcp/corpus/*.md` |
 | Eval | Free heuristic rubric |
 
 MIT.

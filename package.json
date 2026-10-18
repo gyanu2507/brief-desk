@@ -2,17 +2,20 @@
   "name": "brief-desk",
   "version": "0.1.0",
   "private": true,
-  "description": "One-repo CopilotKit + AG-UI briefing desk with MCP tools and bundled corpus",
+  "description": "One-repo CopilotKit desk with Python MCP backend and bundled corpus",
   "scripts": {
     "dev": "concurrently -k -n ui,mcp -c blue,green \"npm run dev:ui\" \"npm run dev:mcp\"",
     "dev:ui": "next dev --turbopack -p 3000",
-    "dev:mcp": "tsx mcp/src/server.ts",
+    "dev:mcp": "npm run mcp:py",
+    "dev:mcp:ts": "tsx mcp/src/server.ts",
+    "mcp:py": "cd backend && uv run python -m brief_desk_mcp",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:mcp": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts",
+    "test:mcp": "tsx --test mcp/src/plan.test.ts mcp/src/corpus.test.ts",
+    "test:mcp:py": "cd backend && uv run pytest -q",
     "test:prompts": "tsx --test lib/prompts.test.ts",
-    "test": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts mcp/src/corpus.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/brief-run.test.ts"
+    "test": "npm run test:mcp:py && tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts mcp/src/corpus.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/brief-run.test.ts"
   },
   "dependencies": {
     "@ag-ui/client": "1.0.2",

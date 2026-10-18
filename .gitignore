@@ -11,3 +11,12 @@ traces/
 tsconfig.tsbuildinfo
 .vercel
 .env*
+.venv/
+.venv-*/
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+backend/*.egg-info/

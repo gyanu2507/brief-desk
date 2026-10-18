@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: brief-desk
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: GITHUB_TOKEN
+        sync: false
