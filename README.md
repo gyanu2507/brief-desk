@@ -31,6 +31,7 @@ Browser
 - **In-chat tool cards** for MCP calls on the free-form path
 - **Live plan board** (SSE step events) + **Cancel run**
 - **Brief history** (reopen / copy / download `.md`)
+- **Optional GitHub sign-in** (Supabase): syncs history + saved shortcuts across devices; guest mode stays localStorage
 - **Light / dark / system** theme
 - Bundled sample corpus under `mcp/corpus/` (no separate packages)
 
@@ -97,6 +98,8 @@ CI runs the same suite on every push/PR (`.github/workflows/ci.yml`).
 **Render:** deploy with the root `Dockerfile` (Python MCP). After deploy, `/health` should show `"runtime":"python"` and `"version":"0.10.0"`.
 
 **Vercel:** point `MCP_URL` at that Render `/mcp` endpoint.
+
+**Optional Supabase sync:** create a free project, run [`supabase/schema.sql`](./supabase/schema.sql), enable the GitHub auth provider (callback URL `https://<project>.supabase.co/auth/v1/callback`), and set `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` on Vercel. Without those env vars the desk stays guest-only.
 
 ## Stack
 

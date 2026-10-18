@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCopilotChatInternal, useCopilotReadable } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
+import type { User } from "@supabase/supabase-js";
 import { AgentLog } from "./AgentLog";
+import { AuthButton } from "./AuthButton";
 import { BrandMark } from "./BrandMark";
 import { BriefExportBar } from "./BriefExportBar";
 import { BriefHistory } from "./BriefHistory";
@@ -16,6 +18,7 @@ import { ToolCards } from "./ToolCards";
 import { TrendingPicker, type TrendingRow } from "./TrendingPicker";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
 import {
+  HISTORY_MAX,
   historyLabel,
   loadBriefHistory,
   pushBriefHistory,
@@ -27,6 +30,7 @@ import { runBriefViaApi } from "../lib/brief-run-client";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
 import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
+import { SAVED_MAX, type SavedBrief } from "../lib/saved-shortcuts";
 import {
   isKnownLanguage,
   normalizePackageName,
@@ -40,6 +44,13 @@ import {
   parseSessionSearch,
   type SessionLinkState,
 } from "../lib/session-link";
+import {
+  fetchRemoteHistory,
+  fetchRemoteSaved,
+  pushRemoteHistory,
+  pushRemoteSaved,
+} from "../lib/sync-api";
+import { mergeByIdAt } from "../lib/sync-merge";
 import { renderTemplate } from "../lib/template";
 import type { BriefMode, PackageRegistry, PromptUi, SourceKind } from "../lib/types";
 
@@ -50,22 +61,6 @@ function emitPlan(detail: { steps?: PlanStep[]; note?: string | null; active?: b
 const STORE_KEY = "brief-desk-v4";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const RUN_WATCHDOG_MS = 90_000;
-
-type SavedBrief = {
-  id: string;
-  at: number;
-  label: string;
-  source: SourceKind;
-  mode: BriefMode;
-  repo?: string;
-  repoB?: string;
-  url?: string;
-  goal?: string;
-  packageName?: string;
-  packageRegistry?: PackageRegistry;
-  tagA?: string;
-  tagB?: string;
-};
 
 function normalizeRepo(value: string): string | null {
   const trimmed = value.trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/, "");
@@ -194,7 +189,12 @@ export default function Page() {
   const [history, setHistory] = useState<BriefHistoryEntry[]>([]);
   const [lastMarkdown, setLastMarkdown] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [cloudUserId, setCloudUserId] = useState<string | null>(null);
   const skipUrlWrite = useRef(true);
+  const skipCloudWrite = useRef(true);
+  const lastSyncedUserId = useRef<string | null>(null);
+  const historyRef = useRef<BriefHistoryEntry[]>([]);
+  const savedRef = useRef<SavedBrief[]>([]);
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
   const [mcpVersion, setMcpVersion] = useState<string>("");
   const [mcpTools, setMcpTools] = useState<string[]>([]);
@@ -279,7 +279,7 @@ export default function Page() {
           }
           if (typeof parsed.tagA === "string") setTagA(parsed.tagA);
           if (typeof parsed.tagB === "string") setTagB(parsed.tagB);
-          if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, 8));
+          if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, SAVED_MAX));
         }
       }
       // Still restore saved shortcuts from localStorage even when URL wins.
@@ -287,7 +287,7 @@ export default function Page() {
       if (rawSaved && fromUrl) {
         try {
           const parsed = JSON.parse(rawSaved) as { saved?: SavedBrief[] };
-          if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, 8));
+          if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, SAVED_MAX));
         } catch {
           // ignore
         }
@@ -301,8 +301,64 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    saveBriefHistory(history);
+    historyRef.current = history;
   }, [history]);
+
+  useEffect(() => {
+    savedRef.current = saved;
+  }, [saved]);
+
+  const handleUserChange = useCallback(async (user: User | null) => {
+    const uid = user?.id ?? null;
+    setCloudUserId(uid);
+    if (!uid) {
+      lastSyncedUserId.current = null;
+      skipCloudWrite.current = true;
+      return;
+    }
+    if (lastSyncedUserId.current === uid) return;
+    lastSyncedUserId.current = uid;
+    skipCloudWrite.current = true;
+    try {
+      const [remoteHistory, remoteSaved] = await Promise.all([
+        fetchRemoteHistory(),
+        fetchRemoteSaved(),
+      ]);
+      const mergedHistory = mergeByIdAt(
+        historyRef.current,
+        remoteHistory ?? [],
+        HISTORY_MAX,
+      );
+      const mergedSaved = mergeByIdAt(savedRef.current, remoteSaved ?? [], SAVED_MAX);
+      setHistory(mergedHistory);
+      setSaved(mergedSaved);
+      await Promise.all([
+        pushRemoteHistory(mergedHistory),
+        pushRemoteSaved(mergedSaved),
+      ]);
+    } catch {
+      // ignore sync errors; localStorage still works
+    } finally {
+      skipCloudWrite.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    saveBriefHistory(history);
+    if (!cloudUserId || skipCloudWrite.current) return;
+    const t = window.setTimeout(() => {
+      void pushRemoteHistory(history);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [history, cloudUserId]);
+
+  useEffect(() => {
+    if (!cloudUserId || skipCloudWrite.current) return;
+    const t = window.setTimeout(() => {
+      void pushRemoteSaved(saved);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [saved, cloudUserId]);
 
   useEffect(() => {
     try {
@@ -955,7 +1011,7 @@ export default function Page() {
           tagB: source === "releases" ? tagB || undefined : undefined,
         },
         ...prev,
-      ].slice(0, 8),
+      ].slice(0, SAVED_MAX),
     );
   };
 
@@ -1067,7 +1123,10 @@ export default function Page() {
                 </h1>
               </div>
             </div>
-            <ThemeToggle />
+            <div className="header-actions">
+              <AuthButton onUserChange={handleUserChange} />
+              <ThemeToggle />
+            </div>
           </div>
           <p style={{ margin: "0 0 12px", color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>
             GitHub, docs, compare, trending, packages, release diffs, or corpus. Run agent drafts a
