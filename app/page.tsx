@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { useCopilotReadable } from "@copilotkit/react-core";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCopilotChatInternal, useCopilotReadable } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { AgentLog } from "./AgentLog";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
@@ -18,6 +18,9 @@ type SavedBrief = {
   label: string;
   source: SourceKind;
   mode: BriefMode;
+  repo?: string;
+  repoB?: string;
+  url?: string;
 };
 
 function normalizeRepo(value: string): string | null {
@@ -47,6 +50,16 @@ const MODES: { id: BriefMode; label: string }[] = [
   { id: "general", label: "General" },
 ];
 
+const DEFAULT_Q: Record<BriefMode, string> = {
+  overview: "What are the main features and who is this for?",
+  risks: "What are the biggest risks and open issues right now?",
+  architecture: "How is the project structured and what are the main modules?",
+  activity: "What has landed recently in issues, PRs, and releases?",
+  code: "Where should I start reading the code for the core flow?",
+  docs: "Summarize the docs a new engineer needs first.",
+  general: "Give a concise engineering brief with citations.",
+};
+
 const SUGGEST: Record<SourceKind, string[]> = {
   github: [
     "What are the main features?",
@@ -59,7 +72,7 @@ const SUGGEST: Record<SourceKind, string[]> = {
     "List key concepts and APIs mentioned.",
   ],
   compare: [
-    "Compare these repos for a production SaaS frontend.",
+    "Compare these for a production SaaS product.",
     "Which is simpler to adopt and why?",
     "Tradeoffs: ecosystem, complexity, maturity.",
   ],
@@ -69,6 +82,31 @@ const SUGGEST: Record<SourceKind, string[]> = {
     "What open questions remain in the corpus?",
   ],
 };
+
+const DEMOS = [
+  {
+    label: "Demo · React risks",
+    source: "github" as const,
+    mode: "risks" as const,
+    repo: "facebook/react",
+    question: "What are the biggest risks and open issues right now?",
+  },
+  {
+    label: "Demo · Next vs Remix",
+    source: "compare" as const,
+    mode: "general" as const,
+    repo: "vercel/next.js",
+    repoB: "remix-run/remix",
+    question: "Compare these for a production SaaS frontend. Cite README facts.",
+  },
+  {
+    label: "Demo · MCP docs",
+    source: "url" as const,
+    mode: "docs" as const,
+    url: "https://modelcontextprotocol.io/introduction",
+    question: "Summarize this for an engineer building an MCP tool server.",
+  },
+];
 
 const fieldStyle: CSSProperties = {
   width: "100%",
@@ -82,7 +120,31 @@ const fieldStyle: CSSProperties = {
   background: "#fff",
 };
 
+function buildPrompt(args: {
+  source: SourceKind;
+  mode: BriefMode;
+  repo: string | null;
+  repoB: string | null;
+  url: string | null;
+  question: string;
+}): string {
+  const mode = args.source === "compare" ? "compare" : args.mode;
+  const lines = [
+    "Run a brief-desk briefing.",
+    `source=${args.source}`,
+    `mode=${mode}`,
+    args.repo ? `repo=${args.repo}` : null,
+    args.repoB ? `repo_b=${args.repoB}` : null,
+    args.url ? `url=${args.url}` : null,
+    "Call brief_orchestrate with these fields, draft from evidence, then brief_eval. Revise if pass=false. Cite sources.",
+    "",
+    `Question: ${args.question}`,
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
 export default function Page() {
+  const { sendMessage, isLoading } = useCopilotChatInternal();
   const [source, setSource] = useState<SourceKind>("github");
   const [mode, setMode] = useState<BriefMode>("overview");
   const [repoInput, setRepoInput] = useState("");
@@ -91,6 +153,7 @@ export default function Page() {
   const [saved, setSaved] = useState<SavedBrief[]>([]);
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
   const [mcpVersion, setMcpVersion] = useState<string>("");
+  const [busyNote, setBusyNote] = useState<string | null>(null);
 
   const repo = normalizeRepo(repoInput);
   const repoB = normalizeRepo(repoBInput);
@@ -172,7 +235,7 @@ export default function Page() {
     if (source === "github") {
       return {
         ...base,
-        repo: repo,
+        repo,
         url: null,
         repo_b: null,
         note: repo
@@ -183,7 +246,7 @@ export default function Page() {
     if (source === "url") {
       return {
         ...base,
-        repo: repo,
+        repo,
         url,
         repo_b: null,
         note: url
@@ -224,36 +287,95 @@ export default function Page() {
     (source === "compare" && Boolean(repo) && Boolean(repoB)) ||
     source === "corpus";
 
+  const runBrief = useCallback(
+    async (
+      question: string,
+      override?: Partial<{
+        source: SourceKind;
+        mode: BriefMode;
+        repo: string | null;
+        repoB: string | null;
+        url: string | null;
+      }>,
+    ) => {
+      if (isLoading) return;
+      const s = override?.source ?? source;
+      const m = override?.mode ?? mode;
+      const r = override?.repo !== undefined ? override.repo : repo;
+      const rB = override?.repoB !== undefined ? override.repoB : repoB;
+      const u = override?.url !== undefined ? override.url : url;
+      const sessionReady =
+        (s === "github" && Boolean(r)) ||
+        (s === "url" && Boolean(u)) ||
+        (s === "compare" && Boolean(r) && Boolean(rB)) ||
+        s === "corpus";
+      if (!sessionReady) return;
+      const content = buildPrompt({
+        source: s,
+        mode: m,
+        repo: r,
+        repoB: rB,
+        url: u,
+        question,
+      });
+      setBusyNote("Running orchestrate → eval…");
+      try {
+        await sendMessage({
+          id: crypto.randomUUID(),
+          role: "user",
+          content,
+        });
+      } finally {
+        setBusyNote(null);
+      }
+    },
+    [isLoading, sendMessage, source, mode, repo, repoB, url],
+  );
+
   const pinSession = () => {
+    if (!ready) return;
     const label =
       source === "github"
         ? repo || "github"
         : source === "url"
           ? url || "url"
           : source === "compare"
-            ? `${repo || "?"} vs ${repoB || "?"}`
+            ? `${repo} vs ${repoB}`
             : "corpus sample";
-    setSaved((prev) => [
-      {
-        id: `${Date.now()}`,
-        at: Date.now(),
-        label,
-        source,
-        mode: source === "compare" ? "general" : mode,
-      },
-      ...prev,
-    ].slice(0, 8));
+    setSaved((prev) =>
+      [
+        {
+          id: `${Date.now()}`,
+          at: Date.now(),
+          label,
+          source,
+          mode: source === "compare" ? "general" : mode,
+          repo: repo || undefined,
+          repoB: repoB || undefined,
+          url: url || undefined,
+        },
+        ...prev,
+      ].slice(0, 8),
+    );
+  };
+
+  const loadDemo = (demo: (typeof DEMOS)[number]) => {
+    setSource(demo.source);
+    setMode(demo.mode);
+    setRepoInput(demo.repo || "");
+    setRepoBInput(demo.repoB || "");
+    setUrlInput(demo.url || "");
   };
 
   const chatHint = !ready
-    ? "Fill the left panel (repo, URL, two repos, or corpus), then ask in chat. Loop: orchestrate → eval."
+    ? "Fill the left panel, click Start brief, or pick a demo. Loop: orchestrate → eval."
     : source === "compare"
-      ? `Compare ${repo} vs ${repoB}. Ask a tradeoff question in chat.`
+      ? `Ready to compare ${repo} vs ${repoB}. Use Start brief or ask in chat.`
       : source === "url"
-        ? `Docs source ready. Ask what to extract from the URL${repo ? ` (optional repo ${repo})` : ""}.`
+        ? `Docs URL ready. Start brief or ask what to extract.`
         : source === "corpus"
-          ? "Corpus sample mode. Ask about the bundled local docs."
-          : `Repo ${repo} · mode ${mode}. Ask in chat (features, risks, architecture, code…).`;
+          ? "Corpus sample ready. Start brief or ask about the bundled docs."
+          : `Repo ${repo} · ${mode}. Start brief or type a follow-up.`;
 
   return (
     <TranscriptProvider>
@@ -283,8 +405,8 @@ export default function Page() {
             Multi-source briefing app
           </h1>
           <p style={{ margin: "0 0 14px", color: "var(--muted)", fontSize: 13, lineHeight: 1.45 }}>
-            One product surface: pick a source, pick a brief type, chat. Agent runs
-            orchestrate → draft → eval (Groq + MCP, free).
+            Configure a source, then Start brief. The agent orchestrates tools and runs a free eval
+            pass before answering.
           </p>
 
           <div
@@ -305,7 +427,35 @@ export default function Page() {
                 background: mcpOk === null ? "#94a3b8" : mcpOk ? "#22c55e" : "#ef4444",
               }}
             />
-            MCP {mcpOk === null ? "checking…" : mcpOk ? `online${mcpVersion ? ` · v${mcpVersion}` : ""}` : "offline"}
+            MCP {mcpOk === null ? "checking…" : mcpOk ? `online${mcpVersion ? ` · v${mcpVersion}` : ""}` : "offline · redeploy Render"}
+          </div>
+
+          <p style={labelStyle}>QUICK DEMOS</p>
+          <div style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+            {DEMOS.map((d) => (
+              <button
+                key={d.label}
+                type="button"
+                disabled={isLoading}
+                onClick={() => {
+                  loadDemo(d);
+                  void runBrief(d.question, {
+                    source: d.source,
+                    mode: d.mode,
+                    repo: d.repo || null,
+                    repoB: d.repoB || null,
+                    url: d.url || null,
+                  });
+                }}
+                style={{
+                  ...chipStyle,
+                  textAlign: "left",
+                  background: "#f8fafc",
+                }}
+              >
+                {d.label}
+              </button>
+            ))}
           </div>
 
           <p style={labelStyle}>SOURCE</p>
@@ -394,41 +544,57 @@ export default function Page() {
                 placeholder="https://…"
                 spellCheck={false}
               />
-              <p style={{ margin: "6px 0 0", fontSize: 11, color: "var(--muted)" }}>
-                Optional repo above ties the docs brief to a codebase.
-              </p>
             </>
           ) : null}
 
           {source === "corpus" ? (
             <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--muted)", lineHeight: 1.45 }}>
-              Uses the bundled local markdown corpus on the MCP host (no GitHub token needed).
+              Bundled local markdown on the MCP host. No GitHub token needed.
             </p>
           ) : null}
 
-          <p
+          <button
+            type="button"
+            onClick={() =>
+              void runBrief(
+                source === "compare"
+                  ? SUGGEST.compare[0]
+                  : source === "corpus"
+                    ? SUGGEST.corpus[0]
+                    : source === "url"
+                      ? SUGGEST.url[0]
+                      : DEFAULT_Q[mode],
+              )
+            }
+            disabled={!ready || isLoading || mcpOk === false}
             style={{
-              margin: "12px 0 0",
-              fontSize: 12,
-              color: ready ? "#15803d" : "#b45309",
-              lineHeight: 1.4,
+              marginTop: 14,
+              width: "100%",
+              padding: "11px 12px",
+              borderRadius: 8,
+              border: "none",
+              background: !ready || isLoading || mcpOk === false ? "#cbd5e1" : "var(--accent)",
+              color: "#fff",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: !ready || isLoading || mcpOk === false ? "not-allowed" : "pointer",
             }}
           >
-            {ready ? "Session ready. Ask in chat." : "Complete the fields for this source."}
-          </p>
+            {isLoading || busyNote ? "Running…" : "Start brief"}
+          </button>
 
           <button
             type="button"
             onClick={pinSession}
             disabled={!ready}
             style={{
-              marginTop: 10,
+              marginTop: 8,
               width: "100%",
               padding: "8px 10px",
               borderRadius: 8,
               border: "1px solid var(--line)",
-              background: ready ? "#0f172a" : "#e2e8f0",
-              color: ready ? "#fff" : "#94a3b8",
+              background: "#fff",
+              color: ready ? "var(--ink)" : "#94a3b8",
               fontSize: 13,
               cursor: ready ? "pointer" : "not-allowed",
             }}
@@ -436,12 +602,24 @@ export default function Page() {
             Save session shortcut
           </button>
 
-          <p style={{ ...labelStyle, marginTop: 18 }}>TRY ASKING</p>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--muted)", lineHeight: 1.55 }}>
+          <p style={{ ...labelStyle, marginTop: 18 }}>CLICK TO RUN</p>
+          <div style={{ display: "grid", gap: 6 }}>
             {SUGGEST[source].map((s) => (
-              <li key={s}>{s}</li>
+              <button
+                key={s}
+                type="button"
+                disabled={!ready || isLoading}
+                onClick={() => void runBrief(s)}
+                style={{
+                  ...chipStyle,
+                  textAlign: "left",
+                  color: !ready || isLoading ? "#94a3b8" : "var(--ink)",
+                }}
+              >
+                {s}
+              </button>
             ))}
-          </ul>
+          </div>
 
           {saved.length ? (
             <>
@@ -454,15 +632,9 @@ export default function Page() {
                       onClick={() => {
                         setSource(s.source);
                         setMode(s.mode);
-                        if (s.source === "compare" && s.label.includes(" vs ")) {
-                          const [a, b] = s.label.split(" vs ");
-                          setRepoInput(a);
-                          setRepoBInput(b);
-                        } else if (s.source === "url") {
-                          setUrlInput(s.label.startsWith("http") ? s.label : urlInput);
-                        } else if (s.source === "github") {
-                          setRepoInput(s.label);
-                        }
+                        setRepoInput(s.repo || (s.source === "github" ? s.label : ""));
+                        setRepoBInput(s.repoB || "");
+                        setUrlInput(s.url || (s.source === "url" ? s.label : ""));
                       }}
                       style={{
                         width: "100%",
@@ -486,7 +658,25 @@ export default function Page() {
           ) : null}
         </aside>
 
-        <section style={{ minHeight: "100vh", background: "#eef2ff", minWidth: 0 }}>
+        <section style={{ minHeight: "100vh", background: "#eef2ff", minWidth: 0, display: "relative" }}>
+          {busyNote || isLoading ? (
+            <div
+              style={{
+                position: "absolute",
+                top: 10,
+                left: 12,
+                right: 12,
+                zIndex: 5,
+                padding: "8px 12px",
+                borderRadius: 8,
+                background: "#0f172a",
+                color: "#e2e8f0",
+                fontSize: 12,
+              }}
+            >
+              {busyNote || "Agent running… watch the log for orchestrate → eval."}
+            </div>
+          ) : null}
           <CopilotChat
             labels={{
               title: "brief-desk",
