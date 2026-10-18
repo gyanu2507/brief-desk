@@ -233,6 +233,8 @@ export default function Page() {
   const hasBriefAuto = mcpTools.includes("brief_auto");
   const hasOrchestrate = mcpTools.includes("brief_orchestrate");
   const mcpReady = mcpOk === true && hasOrchestrate;
+  // Keep controls usable while the first health ping is in flight.
+  const mcpBlocked = mcpOk === false || (mcpOk === true && !hasOrchestrate);
 
   const contextValue = useMemo(() => {
     const note = sessionNote(promptUi, { source, mode, repo, repoB, url });
@@ -265,7 +267,7 @@ export default function Page() {
     source === "corpus";
 
   const [pipelineBusy, setPipelineBusy] = useState(false);
-  const canRun = ready && mcpReady && !isLoading && !pipelineBusy;
+  const canRun = ready && !mcpBlocked && !isLoading && !pipelineBusy;
 
   const runBrief = useCallback(
     async (
@@ -604,7 +606,7 @@ export default function Page() {
                     key={s}
                     type="button"
                     className="chip"
-                    disabled={!mcpReady || pipelineBusy || (source !== "auto" && !ready)}
+                    disabled={mcpBlocked || pipelineBusy || (source !== "auto" && !ready)}
                     onClick={() => {
                       if (source === "auto") {
                         setGoalInput(s);
@@ -654,7 +656,7 @@ export default function Page() {
                 key={d.label}
                 type="button"
                 className="chip"
-                disabled={!mcpReady || pipelineBusy}
+                disabled={mcpBlocked || pipelineBusy}
                 onClick={() => {
                   loadDemo(d);
                   void runBrief(d.goal || d.question, {
