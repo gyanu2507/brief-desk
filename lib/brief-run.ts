@@ -24,12 +24,23 @@ function truncate(s: string, max: number): string {
   return `${s.slice(0, max)}\n\n…[truncated]`;
 }
 
+const MODEL_ALIASES: Record<string, string> = {
+  "llama-3.3-70b-versatile": "qwen/qwen3.8-27b",
+  "llama-3.1-8b-instant": "qwen/qwen3.8-27b",
+  "llama-3.1-70b-versatile": "qwen/qwen3.8-27b",
+  "gpt-oss-20b": "openai/gpt-oss-20b",
+  "gpt-oss-120b": "openai/gpt-oss-120b",
+  "qwen3.8-27b": "qwen/qwen3.8-27b",
+};
+
 function resolveModelId(): string {
+  // Prefer BRIEF_RUN_MODEL. Ignore stale Llama ids still set on some hosts.
   const raw =
     process.env.BRIEF_RUN_MODEL?.trim() ||
     process.env.COPILOTKIT_AGENT_MODEL?.trim() ||
     "openai:qwen/qwen3.8-27b";
-  return raw.replace(/^openai[:/]/i, "");
+  const id = raw.replace(/^openai[:/]/i, "");
+  return MODEL_ALIASES[id] ?? id;
 }
 
 async function draftWithGroq(question: string, evidence: string): Promise<string> {
