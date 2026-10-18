@@ -53,13 +53,37 @@ Also: MCP health indicator, saved session shortcuts, agent log.
 
 Default loop: **`brief_orchestrate`** → draft → **`brief_eval`**. Revise if `pass=false`.
 
+### Prompt-file routing
+
+Agent routing, the orchestrate → eval loop, Start brief text, demos, and suggest chips
+all come from `prompts/` (not hardcoded in the agent).
+
+```
+prompts/
+  system.md                 # agent identity + default loop
+  router.md                 # how to pick a route from session fields
+  routes/
+    github.md | url.md | compare.md | corpus.md | followup.md
+  templates/
+    start-brief.md          # one-click Start brief user message
+  ui.json                   # demos, suggests, modes, session notes
+```
+
+- BuiltInAgent loads `system.md` + `router.md` + every `routes/*.md` at boot.
+- UI loads demos/suggests via `GET /api/prompts`.
+- Start brief renders `templates/start-brief.md` via `POST /api/prompts`.
+
+Edit a route file and redeploy the Next app to change behavior. No TypeScript change required
+for copy or routing instructions.
+
 `GITHUB_TOKEN` on the MCP host unlocks code search and higher GitHub rate limits.
 
 ## Verify
 
 ```bash
-npm run test:mcp
+npm test
 curl -s http://127.0.0.1:3108/health
+curl -s http://localhost:3000/api/prompts | head
 ```
 
 ## Stack

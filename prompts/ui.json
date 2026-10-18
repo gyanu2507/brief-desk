@@ -1,0 +1,76 @@
+{
+  "readableDescription": "Active brief-desk session. Always prefer brief_orchestrate then brief_eval using these fields. Do not invent tool names. Follow prompts/router.md route selection.",
+  "modes": [
+    { "id": "overview", "label": "Overview" },
+    { "id": "risks", "label": "Risks" },
+    { "id": "architecture", "label": "Architecture" },
+    { "id": "activity", "label": "Activity" },
+    { "id": "code", "label": "Code" },
+    { "id": "docs", "label": "Docs" },
+    { "id": "general", "label": "General" }
+  ],
+  "defaultQuestions": {
+    "overview": "What are the main features and who is this for?",
+    "risks": "What are the biggest risks and open issues right now?",
+    "architecture": "How is the project structured and what are the main modules?",
+    "activity": "What has landed recently in issues, PRs, and releases?",
+    "code": "Where should I start reading the code for the core flow?",
+    "docs": "Summarize the docs a new engineer needs first.",
+    "general": "Give a concise engineering brief with citations."
+  },
+  "suggest": {
+    "github": [
+      "What are the main features?",
+      "What are the biggest risks right now?",
+      "How is the project structured?"
+    ],
+    "url": [
+      "Summarize this document for an engineer.",
+      "What should I implement first from these docs?",
+      "List key concepts and APIs mentioned."
+    ],
+    "compare": [
+      "Compare these for a production SaaS product.",
+      "Which is simpler to adopt and why?",
+      "Tradeoffs: ecosystem, complexity, maturity."
+    ],
+    "corpus": [
+      "What is the checkout promo about?",
+      "Summarize the sample docs.",
+      "What open questions remain in the corpus?"
+    ]
+  },
+  "sessionNotes": {
+    "github_ready": "Use brief_orchestrate with repo={{repo}} and mode={{mode}}, then brief_eval.",
+    "github_missing": "Ask user for owner/name or switch source.",
+    "url_ready": "Use brief_orchestrate with url={{url}}{{repo_suffix}}, mode={{mode}}, then brief_eval.",
+    "url_missing": "Ask user for a public https URL.",
+    "compare_ready": "Use brief_orchestrate mode=compare repo={{repo}} repo_b={{repo_b}}, then brief_eval.",
+    "compare_missing": "Need two owner/name values for compare.",
+    "corpus": "Use brief_corpus for the bundled local sample, then brief_eval."
+  },
+  "demos": [
+    {
+      "label": "Demo · React risks",
+      "source": "github",
+      "mode": "risks",
+      "repo": "facebook/react",
+      "question": "What are the biggest risks and open issues right now?"
+    },
+    {
+      "label": "Demo · Next vs Remix",
+      "source": "compare",
+      "mode": "general",
+      "repo": "vercel/next.js",
+      "repoB": "remix-run/remix",
+      "question": "Compare these for a production SaaS frontend. Cite README facts."
+    },
+    {
+      "label": "Demo · MCP docs",
+      "source": "url",
+      "mode": "docs",
+      "url": "https://modelcontextprotocol.io/introduction",
+      "question": "Summarize this for an engineer building an MCP tool server."
+    }
+  ]
+}

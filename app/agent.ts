@@ -1,4 +1,5 @@
 import { BuiltInAgent } from "@copilotkit/runtime/v2";
+import { loadAgentSystemPrompt } from "../lib/prompts";
 
 const PROVIDER_ALIASES: Record<string, "openai" | "anthropic" | "google"> = {
   openai: "openai",
@@ -35,7 +36,7 @@ export function resolveAgentModel(defaultSpec: string): string {
 
 /**
  * CopilotKit BuiltInAgent streams to the UI over AG-UI.
- * Tools come from the MCP server (orchestrator + GitHub + URL + corpus + eval).
+ * Tools come from MCP. Routing + loop live in prompts/*.md.
  */
 export function createDefaultAgent(): BuiltInAgent {
   const mcpUrl = process.env.MCP_URL || "http://127.0.0.1:3108/mcp";
@@ -43,22 +44,7 @@ export function createDefaultAgent(): BuiltInAgent {
   return new BuiltInAgent({
     model: resolveAgentModel("openai:openai/gpt-oss-20b"),
     maxSteps: 10,
-    prompt: [
-      "You are brief-desk, an engineering briefing agent with an orchestrator + eval loop.",
-      "Sources can be: GitHub repos, public docs URLs, or the local corpus sample. Not GitHub-only.",
-      "Use only tools that appear in your tool list (never invent tool names).",
-      "Default loop for non-trivial questions:",
-      "1) brief_orchestrate (pass repo and/or url; mode optional: overview|risks|architecture|activity|code|docs|compare|general)",
-      "2) draft an answer from the gather pack only",
-      "3) brief_eval with question + draft + short evidence excerpt",
-      "4) if pass=false, revise once using revisions, then answer the user",
-      "Compare two repos: mode=compare with repo + repo_b.",
-      "Public docs / RFCs / blogs: pass url= to brief_orchestrate or brief_fetch_url.",
-      "Local sample docs only: brief_corpus.",
-      "Tiny follow-ups can skip orchestrate and use brief_repo_file / brief_repo_overview / brief_workspace.",
-      "Always cite paths, #issue/#PR, or source URLs. If evidence is missing, say what is missing.",
-      "If a tool errors (rate limit, too large, missing token), explain briefly and answer with what you have.",
-    ].join(" "),
+    prompt: loadAgentSystemPrompt(),
     mcpServers: [
       {
         type: "http",

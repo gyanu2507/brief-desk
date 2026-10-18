@@ -10,7 +10,9 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:mcp": "tsx --test mcp/src/server.test.ts"
+    "test:mcp": "tsx --test mcp/src/server.test.ts",
+    "test:prompts": "tsx --test lib/prompts.test.ts",
+    "test": "tsx --test mcp/src/server.test.ts lib/prompts.test.ts"
   },
   "dependencies": {
     "@ag-ui/client": "1.0.2",
