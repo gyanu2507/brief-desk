@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import re
+
 from brief_desk_mcp.corpus import search_corpus
 from brief_desk_mcp.github_tools import (
     fetch_public_url,
@@ -16,6 +18,7 @@ from brief_desk_mcp.plan import (
     normalize_github_repo,
     plan_for_mode,
 )
+from brief_desk_mcp.web_search import search_web
 
 
 async def run_orchestrate(
@@ -92,19 +95,20 @@ async def run_orchestrate(
 async def run_auto(goal: str) -> str:
     plan = build_autonomous_plan(goal)
     invented = plan["invented"]
+    want_web = bool(re.search(r"\b(web|search|internet|online|news)\b", goal, re.I))
+
     if invented["source_kind"] == "corpus" or (not invented["repo"] and not invented["url"]):
-        gather = search_corpus(goal)
+        gather: dict[str, Any] = {"corpus": search_corpus(goal)}
+        if want_web or not gather["corpus"]["hits"]:
+            gather["web"] = await search_web(goal)
+        hits = gather["corpus"]["hits"] or (gather.get("web") or {}).get("hits") or []
         packed = {
             **plan,
             "gather": gather,
             "guidance": (
-                "Draft from gather, then brief_eval."
-                if invented["repo"] or invented["url"]
-                else (
-                    "Draft from local corpus hits, then brief_eval."
-                    if gather["hits"]
-                    else "No repo/URL and no corpus hits. Ask one clarifying question."
-                )
+                "Draft from gather (corpus and/or web), then brief_eval. Cite file paths or URLs."
+                if hits
+                else "No repo/URL and no corpus/web hits. Ask one clarifying question."
             ),
         }
         return json.dumps(packed, indent=2)
@@ -120,6 +124,10 @@ async def run_auto(goal: str) -> str:
         gather_obj: Any = json.loads(gather_text)
     except json.JSONDecodeError:
         gather_obj = {"raw": truncate(gather_text, 8000)}
+
+    if want_web and isinstance(gather_obj, dict):
+        gather_obj["web"] = await search_web(goal)
+
     packed = {
         **plan,
         "gather": gather_obj,

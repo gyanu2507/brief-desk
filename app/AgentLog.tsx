@@ -55,6 +55,10 @@ function summarizeArgs(raw: string | undefined): string {
     if (typeof parsed.mode === "string") bits.push(`mode=${parsed.mode}`);
     if (typeof parsed.source === "string") bits.push(`source=${parsed.source}`);
     if (typeof parsed.path === "string") bits.push(`path=${parsed.path}`);
+    if (typeof parsed.query === "string") {
+      const q = parsed.query.length > 72 ? `${parsed.query.slice(0, 72)}…` : parsed.query;
+      bits.push(`query="${q}"`);
+    }
     if (typeof parsed.question === "string") {
       const q = parsed.question.length > 72 ? `${parsed.question.slice(0, 72)}…` : parsed.question;
       bits.push(`q="${q}"`);
@@ -77,6 +81,8 @@ function routeForTool(name: string): string {
       return "MCP → free eval rubric (groundedness / citations)";
     case "brief_fetch_url":
       return "MCP → public URL fetch";
+    case "brief_web_search":
+      return "MCP → DuckDuckGo Instant Answer";
     case "brief_repo_ask":
       return "MCP → GitHub (README + issues + code + releases)";
     case "brief_repo_overview":
@@ -97,7 +103,7 @@ const PIPELINE = [
   { id: "api", label: "/api/copilotkit" },
   { id: "agent", label: "BuiltInAgent (Groq)" },
   { id: "mcp", label: "Python MCP" },
-  { id: "backend", label: "GitHub / corpus" },
+  { id: "backend", label: "GitHub / web / corpus" },
 ] as const;
 
 function activeStages(entries: LogEntry[], inProgress: boolean): Set<string> {

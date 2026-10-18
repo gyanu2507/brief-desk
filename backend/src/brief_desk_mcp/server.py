@@ -23,6 +23,7 @@ from brief_desk_mcp.github_tools import (
 )
 from brief_desk_mcp.orchestrate import run_auto, run_orchestrate
 from brief_desk_mcp.plan import build_autonomous_plan, normalize_github_repo
+from brief_desk_mcp.web_search import search_web
 
 TOOLS = [
     "brief_auto",
@@ -30,6 +31,7 @@ TOOLS = [
     "brief_orchestrate",
     "brief_eval",
     "brief_fetch_url",
+    "brief_web_search",
     "brief_repo_ask",
     "brief_repo_overview",
     "brief_repo_file",
@@ -184,6 +186,17 @@ async def brief_fetch_url(url: str) -> str:
 
 
 @mcp.tool(
+    name="brief_web_search",
+    description="Free DuckDuckGo Instant Answer search (no API key). Use for public web facts.",
+)
+async def brief_web_search(query: str, max_results: int = 6) -> str:
+    try:
+        return _json(await search_web(query, max_results=max(1, min(max_results, 10))))
+    except Exception as e:
+        raise ToolError(f"brief_web_search failed: {e}") from e
+
+
+@mcp.tool(
     name="stack_info",
     description="Describe the brief-desk protocol stack.",
 )
@@ -197,6 +210,7 @@ async def stack_info() -> str:
             "backends": [
                 "GitHub (overview/ask/file)",
                 "public URL fetch",
+                "DuckDuckGo Instant Answer (brief_web_search)",
                 "bundled mcp/corpus",
                 "free heuristic eval rubric",
                 "autonomous brief_auto",

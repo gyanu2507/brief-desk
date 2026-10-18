@@ -1,7 +1,8 @@
 # brief-desk
 
-One-repo engineering briefing app: Next.js UI + **Python MCP backend**,
-CopilotKit chat, AG-UI streaming, and a deterministic **gather → draft → eval** path.
+One-repo engineering briefing desk: Next.js + CopilotKit (AG-UI) + **Python MCP**.
+
+Pick a source (auto, GitHub, docs URL, compare, corpus), run the agent, get a cited brief. Free-form chat can call the same MCP tools. Tool cards, a live plan board, and cancel are built into the UI.
 
 ```
 Browser
@@ -13,12 +14,20 @@ Browser
          Python MCP (backend/)
            ├── brief_auto / brief_orchestrate
            ├── brief_eval
-           ├── brief_fetch_url
+           ├── brief_fetch_url / brief_web_search
            ├── GitHub tools
            └── brief_corpus  →  mcp/corpus/*.md
 ```
 
-Corpus sample docs ship under `mcp/corpus/`. No separate workspace/corpus packages.
+## Features
+
+- **Deterministic run path** (`/api/brief-run`): gather → draft → eval → revise
+- **Autonomous auto mode** (`brief_auto`): invents plan from a free-form goal
+- **Web search** (`brief_web_search`): DuckDuckGo Instant Answer, no API key
+- **In-chat tool cards** for MCP calls on the free-form path
+- **Live plan board** + **Cancel run** on the control panel
+- **Light / dark / system** theme
+- Bundled sample corpus under `mcp/corpus/` (no separate packages)
 
 ## Setup
 
@@ -31,7 +40,7 @@ npm install
 cd backend && uv sync && cd ..
 ```
 
-Requires [uv](https://github.com/astral-sh/uv) and Python 3.11+.
+Requires [uv](https://github.com/astral-sh/uv) and Python 3.11+. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Run
 
@@ -40,7 +49,7 @@ npm run dev
 ```
 
 - UI: http://localhost:3000
-- Python MCP health: http://127.0.0.1:3108/health (`runtime: python`, `version: 0.7.0`)
+- Python MCP health: http://127.0.0.1:3108/health (`runtime: python`, `version: 0.8.0`)
 
 Legacy TypeScript MCP (optional): `npm run dev:mcp:ts`
 
@@ -48,7 +57,7 @@ Legacy TypeScript MCP (optional): `npm run dev:mcp:ts`
 
 | Source | What you set | Behavior |
 |---|---|---|
-| **Auto** | free-form goal with `owner/name` or `https://…` | `brief_auto` then draft/eval |
+| **Auto** | free-form goal with `owner/name` or `https://…` | `brief_auto` then draft/eval (web search when useful) |
 | GitHub | `owner/name` + brief type | guided orchestrate |
 | Docs | public URL | fetch + brief |
 | Compare | two repos | side-by-side |
@@ -64,7 +73,9 @@ curl -s -X POST http://localhost:3000/api/brief-run \
   -d '{"source":"auto","goal":"Brief facebook/react risks","question":"Brief facebook/react risks"}'
 ```
 
-**Render:** deploy with the root `Dockerfile` (Python MCP). After deploy, `/health` should show `"runtime":"python"` and `"version":"0.7.0"`.
+**Render:** deploy with the root `Dockerfile` (Python MCP). After deploy, `/health` should show `"runtime":"python"` and `"version":"0.8.0"`.
+
+**Vercel:** point `MCP_URL` at that Render `/mcp` endpoint.
 
 ## Stack
 
@@ -73,7 +84,10 @@ curl -s -X POST http://localhost:3000/api/brief-run \
 | UI | CopilotKit React + control panel (Next.js / Vercel) |
 | Run path | `/api/brief-run` (deterministic) |
 | Tools backend | Python MCP Streamable HTTP (`backend/`) |
+| Web | DuckDuckGo Instant Answer |
 | Corpus | `mcp/corpus/*.md` |
 | Eval | Free heuristic rubric |
 
-MIT.
+## License
+
+MIT. See [LICENSE](./LICENSE).

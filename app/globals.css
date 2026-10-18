@@ -286,6 +286,139 @@ code {
   cursor: not-allowed;
 }
 
+.btn-danger {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--bad);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--bad);
+}
+
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+}
+
+.plan-board {
+  margin: 12px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--query-bg);
+}
+
+.plan-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.plan-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.plan-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--line);
+  flex-shrink: 0;
+}
+
+.plan-step-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.plan-step-active .plan-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.plan-step-done {
+  color: var(--ok);
+}
+
+.plan-step-done .plan-dot {
+  background: var(--ok);
+}
+
+.plan-step-error {
+  color: var(--bad);
+}
+
+.plan-step-error .plan-dot {
+  background: var(--bad);
+}
+
+.plan-step-skipped {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.tool-card {
+  margin: 8px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--processing-bg);
+  box-shadow: var(--shadow);
+  max-width: min(420px, 92%);
+}
+
+.tool-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tool-card-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tool-card-status {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.tool-card-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tool-card-meta {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--processing-note);
+  word-break: break-word;
+}
+
+.tool-card-run {
+  border-color: var(--accent);
+}
+
+.tool-card-done {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+}
+
 .query-panel {
   margin: 4px 0 14px;
   padding: 12px;

@@ -1,17 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCopilotChatInternal, useCopilotReadable } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
 import { AgentLog } from "./AgentLog";
 import { BrandMark } from "./BrandMark";
+import { PlanBoard } from "./PlanBoard";
 import { ThemeToggle } from "./theme";
+import { ToolCards } from "./ToolCards";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
+import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
 import { renderTemplate } from "../lib/template";
 import type { BriefMode, PromptUi, SourceKind } from "../lib/types";
+
+function emitPlan(detail: { steps?: PlanStep[]; note?: string | null; active?: boolean }) {
+  window.dispatchEvent(new CustomEvent("brief-desk-plan", { detail }));
+}
 
 const STORE_KEY = "brief-desk-v4";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -83,7 +90,7 @@ function sessionNote(
 }
 
 export default function Page() {
-  const { isLoading, appendMessage } = useCopilotChatInternal();
+  const { isLoading, appendMessage, stopGeneration } = useCopilotChatInternal();
   const [source, setSource] = useState<SourceKind>("auto");
   const [mode, setMode] = useState<BriefMode>("overview");
   const [repoInput, setRepoInput] = useState("");
@@ -96,6 +103,7 @@ export default function Page() {
   const [mcpTools, setMcpTools] = useState<string[]>([]);
   const [busyNote, setBusyNote] = useState<string | null>(null);
   const [pipelineBusy, setPipelineBusy] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const [promptUi, setPromptUi] = useState<PromptUi>(FALLBACK_UI);
   const [promptRoutes, setPromptRoutes] = useState<string[]>([
     "auto",
@@ -284,6 +292,30 @@ export default function Page() {
     source === "corpus";
 
   const canRun = ready && !mcpBlocked && !isLoading && !pipelineBusy;
+  const canCancel = pipelineBusy || isLoading;
+
+  const cancelRun = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    try {
+      stopGeneration();
+    } catch {
+      // ignore if no free-form run
+    }
+    setBusyNote(null);
+    setPipelineBusy(false);
+    emitPlan({
+      active: false,
+      note: "Cancelled",
+      steps: expectedSteps(source, hasBriefAuto).map((s) => ({
+        ...s,
+        state: s.state === "done" ? "done" : "skipped",
+      })),
+    });
+    window.dispatchEvent(
+      new CustomEvent("brief-desk-error", { detail: "Run cancelled." }),
+    );
+  }, [source, hasBriefAuto, stopGeneration]);
 
   const runBrief = useCallback(
     async (
@@ -323,6 +355,13 @@ export default function Page() {
       // Show the prompt in CopilotChat, then fill the reply via /api/brief-run
       // (reliable). followUp:false so we do not also fire the free-form agent.
       const userFacing = (s === "auto" ? g : question).trim();
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const planned = expectedSteps(s, hasBriefAuto).map((step, i) =>
+        i === 0 ? { ...step, state: "active" as const } : step,
+      );
       setPipelineBusy(true);
       setBusyNote(
         s === "auto"
@@ -331,6 +370,8 @@ export default function Page() {
             : "brief_plan → orchestrate → eval…"
           : "orchestrate → draft → eval…",
       );
+      emitPlan({ steps: planned, note: "Gathering…", active: true });
+
       try {
         await appendMessage(new TextMessage({ role: Role.User, content: userFacing }), {
           followUp: false,
@@ -348,6 +389,7 @@ export default function Page() {
             question: s === "auto" ? g : question,
             goal: s === "auto" ? g : undefined,
           }),
+          signal: controller.signal,
         });
         const body = (await res.json()) as {
           ok?: boolean;
@@ -373,13 +415,35 @@ export default function Page() {
         await appendMessage(new TextMessage({ role: Role.Assistant, content: markdown }), {
           followUp: false,
         });
+        emitPlan({
+          active: false,
+          note: `${body.ms ?? "?"}ms`,
+          steps: stepsFromNames(body.steps || ["done"]),
+        });
         window.dispatchEvent(
           new CustomEvent("brief-desk-answer", {
             detail: { answer: body.answer, steps: body.steps, ms: body.ms },
           }),
         );
       } catch (e) {
+        if (controller.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) {
+          await appendMessage(
+            new TextMessage({
+              role: Role.Assistant,
+              content: "**Cancelled.** You can start another brief when ready.",
+            }),
+            { followUp: false },
+          ).catch(() => undefined);
+          return;
+        }
         const message = e instanceof Error ? e.message : "brief-run failed";
+        emitPlan({
+          active: false,
+          note: message,
+          steps: planned.map((step, i) =>
+            i === 0 ? { ...step, state: "error" as const } : { ...step, state: "skipped" as const },
+          ),
+        });
         await appendMessage(
           new TextMessage({
             role: Role.Assistant,
@@ -389,6 +453,7 @@ export default function Page() {
         ).catch(() => undefined);
         window.dispatchEvent(new CustomEvent("brief-desk-error", { detail: message }));
       } finally {
+        if (abortRef.current === controller) abortRef.current = null;
         setBusyNote(null);
         setPipelineBusy(false);
       }
@@ -500,6 +565,7 @@ export default function Page() {
 
   return (
     <TranscriptProvider>
+      <ToolCards />
       <main className="desk-shell">
         <aside className="desk-controls">
           <div className="brand-row">
@@ -686,6 +752,14 @@ export default function Page() {
                 ? "Run agent"
                 : "Start brief"}
           </button>
+
+          {canCancel ? (
+            <button type="button" className="btn-danger" onClick={cancelRun}>
+              Cancel run
+            </button>
+          ) : null}
+
+          <PlanBoard />
 
           <button
             type="button"
