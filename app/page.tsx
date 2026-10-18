@@ -16,7 +16,11 @@ import { RepoCombobox } from "./RepoCombobox";
 import { ThemeToggle } from "./theme";
 import { ToolCards } from "./ToolCards";
 import { TrendingPicker, type TrendingRow } from "./TrendingPicker";
-import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
+import {
+  LoggingMessages,
+  TranscriptProvider,
+  usePinnedChat,
+} from "./transcript-bridge";
 import {
   HISTORY_MAX,
   historyLabel,
@@ -30,7 +34,7 @@ import { runBriefViaApi } from "../lib/brief-run-client";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
 import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
-import { SAVED_MAX, type SavedBrief } from "../lib/saved-shortcuts";
+import { loadLocalSaved, SAVED_MAX, type SavedBrief } from "../lib/saved-shortcuts";
 import {
   isKnownLanguage,
   normalizePackageName,
@@ -45,6 +49,7 @@ import {
   type SessionLinkState,
 } from "../lib/session-link";
 import {
+  clearRemoteHistory,
   fetchRemoteHistory,
   fetchRemoteSaved,
   pushRemoteHistory,
@@ -170,8 +175,61 @@ function applySessionLink(
   if (state.tagB) setters.setTagB(state.tagB);
 }
 
+function messageRole(msg: unknown): string {
+  if (!msg || typeof msg !== "object") return "";
+  const role = (msg as { role?: string }).role;
+  return typeof role === "string" ? role.toLowerCase() : "";
+}
+
+function messageText(msg: unknown): string {
+  if (!msg || typeof msg !== "object") return "";
+  const content = (msg as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "text" in part) {
+          return String((part as { text: unknown }).text ?? "");
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
+function chatMessagesFromHistory(entry: BriefHistoryEntry) {
+  const q = entry.question || entry.label || "Brief";
+  const stamp = entry.at || Date.now();
+  return {
+    question: q,
+    messages: [
+      {
+        id: `hist-u-${entry.id}-${stamp}`,
+        role: "user" as const,
+        content: q,
+      },
+      {
+        id: `hist-a-${entry.id}-${stamp}`,
+        role: "assistant" as const,
+        content: entry.markdown,
+      },
+    ],
+  };
+}
+
 export default function Page() {
-  const { isLoading, appendMessage, stopGeneration } = useCopilotChatInternal();
+  return (
+    <TranscriptProvider>
+      <DeskPage />
+    </TranscriptProvider>
+  );
+}
+
+function DeskPage() {
+  const { isLoading, appendMessage, stopGeneration, messages } = useCopilotChatInternal();
+  const { setPinned } = usePinnedChat();
   const [source, setSource] = useState<SourceKind>("auto");
   const [mode, setMode] = useState<BriefMode>("overview");
   const [repoInput, setRepoInput] = useState("");
@@ -190,11 +248,17 @@ export default function Page() {
   const [lastMarkdown, setLastMarkdown] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [cloudUserId, setCloudUserId] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const skipUrlWrite = useRef(true);
+  const skipPersist = useRef(true);
   const skipCloudWrite = useRef(true);
+  const syncInFlight = useRef(false);
   const lastSyncedUserId = useRef<string | null>(null);
   const historyRef = useRef<BriefHistoryEntry[]>([]);
   const savedRef = useRef<SavedBrief[]>([]);
+  const skipNextChatHistory = useRef(false);
+  const prevChatLoading = useRef(false);
+  const lastChatHistoryKey = useRef("");
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
   const [mcpVersion, setMcpVersion] = useState<string>("");
   const [mcpTools, setMcpTools] = useState<string[]>([]);
@@ -218,8 +282,10 @@ export default function Page() {
   const goal = goalInput.trim();
 
   useEffect(() => {
+    let bootHistory: BriefHistoryEntry[] = [];
     try {
-      setHistory(loadBriefHistory());
+      bootHistory = loadBriefHistory();
+      setHistory(bootHistory);
       const fromUrl = parseSessionSearch(
         typeof window !== "undefined" ? window.location.search : "",
       );
@@ -295,10 +361,25 @@ export default function Page() {
     } catch {
       // ignore
     }
-    window.setTimeout(() => {
+    // Pin latest History into the chat UI (survives CopilotKit wiping its thread).
+    const latest = bootHistory[0];
+    if (latest?.markdown) {
+      skipNextChatHistory.current = true;
+      setLastMarkdown(latest.markdown);
+      const { question } = chatMessagesFromHistory(latest);
+      setPinned({
+        id: latest.id,
+        user: question,
+        assistant: latest.markdown,
+      });
+    }
+    // Defer persists until after hydrate, otherwise empty [] state wipes localStorage.
+    const t = window.setTimeout(() => {
+      skipPersist.current = false;
       skipUrlWrite.current = false;
     }, 0);
-  }, []);
+    return () => window.clearTimeout(t);
+  }, [setPinned]);
 
   useEffect(() => {
     historyRef.current = history;
@@ -314,36 +395,84 @@ export default function Page() {
     if (!uid) {
       lastSyncedUserId.current = null;
       skipCloudWrite.current = true;
+      syncInFlight.current = false;
+      setSyncError(null);
       return;
     }
     if (lastSyncedUserId.current === uid) return;
-    lastSyncedUserId.current = uid;
+    // Wait until hydrate so we don't merge against a wiped empty store.
+    if (skipPersist.current) {
+      window.setTimeout(() => {
+        void handleUserChange(user);
+      }, 50);
+      return;
+    }
+    if (syncInFlight.current) return;
+    syncInFlight.current = true;
     skipCloudWrite.current = true;
     try {
       const [remoteHistory, remoteSaved] = await Promise.all([
         fetchRemoteHistory(),
         fetchRemoteSaved(),
       ]);
-      const mergedHistory = mergeByIdAt(
+
+      if (!remoteHistory.ok || !remoteSaved.ok) {
+        const err =
+          (!remoteHistory.ok && remoteHistory.error) ||
+          (!remoteSaved.ok && remoteSaved.error) ||
+          "sync failed";
+        const hint =
+          /relation|does not exist|schema cache/i.test(err)
+            ? "Run supabase/schema.sql in the Supabase SQL editor, then refresh."
+            : err;
+        setSyncError(hint);
+        const localHistory = loadBriefHistory();
+        const localSaved = loadLocalSaved(STORE_KEY);
+        if (localHistory.length) setHistory(localHistory);
+        if (localSaved.length) setSaved(localSaved);
+        return;
+      }
+
+      // Re-read disk + in-memory right before merge so a brief that finished
+      // during the network round-trip is not overwritten by a stale merge.
+      const localHistory = mergeByIdAt(
+        loadBriefHistory(),
         historyRef.current,
-        remoteHistory ?? [],
         HISTORY_MAX,
       );
-      const mergedSaved = mergeByIdAt(savedRef.current, remoteSaved ?? [], SAVED_MAX);
+      const localSaved = mergeByIdAt(loadLocalSaved(STORE_KEY), savedRef.current, SAVED_MAX);
+      const mergedHistory = mergeByIdAt(localHistory, remoteHistory.entries, HISTORY_MAX);
+      const mergedSaved = mergeByIdAt(localSaved, remoteSaved.entries, SAVED_MAX);
       setHistory(mergedHistory);
       setSaved(mergedSaved);
-      await Promise.all([
+      const [pushedH, pushedS] = await Promise.all([
         pushRemoteHistory(mergedHistory),
         pushRemoteSaved(mergedSaved),
       ]);
-    } catch {
-      // ignore sync errors; localStorage still works
+      if (!pushedH || !pushedS) {
+        setSyncError(
+          "Could not write history to Supabase. Confirm schema.sql was run, then refresh.",
+        );
+        return;
+      }
+      setSyncError(null);
+      lastSyncedUserId.current = uid;
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : "sync failed");
     } finally {
       skipCloudWrite.current = false;
+      syncInFlight.current = false;
+      // Persist anything that landed while skipCloudWrite was true.
+      window.setTimeout(() => {
+        if (!uid) return;
+        void pushRemoteHistory(historyRef.current);
+        void pushRemoteSaved(savedRef.current);
+      }, 0);
     }
   }, []);
 
   useEffect(() => {
+    if (skipPersist.current) return;
     saveBriefHistory(history);
     if (!cloudUserId || skipCloudWrite.current) return;
     const t = window.setTimeout(() => {
@@ -353,6 +482,7 @@ export default function Page() {
   }, [history, cloudUserId]);
 
   useEffect(() => {
+    if (skipPersist.current) return;
     if (!cloudUserId || skipCloudWrite.current) return;
     const t = window.setTimeout(() => {
       void pushRemoteSaved(saved);
@@ -360,7 +490,86 @@ export default function Page() {
     return () => window.clearTimeout(t);
   }, [saved, cloudUserId]);
 
+  // Free-form chat never hit /api/brief-run, so History stayed empty for most runs.
   useEffect(() => {
+    const wasLoading = prevChatLoading.current;
+    prevChatLoading.current = isLoading;
+    if (!wasLoading || isLoading || pipelineBusy) return;
+    if (skipNextChatHistory.current) {
+      skipNextChatHistory.current = false;
+      return;
+    }
+    const list = Array.isArray(messages) ? messages : [];
+    let assistantIdx = -1;
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const role = messageRole(list[i]);
+      if (role === "assistant" || role === "ai") {
+        assistantIdx = i;
+        break;
+      }
+    }
+    if (assistantIdx < 0) return;
+    const answer = messageText(list[assistantIdx]).trim();
+    if (!answer) return;
+    let question = "";
+    for (let i = assistantIdx - 1; i >= 0; i -= 1) {
+      const role = messageRole(list[i]);
+      if (role === "user" || role === "human") {
+        question = messageText(list[i]).trim();
+        break;
+      }
+    }
+    const key = `${question}\n---\n${answer.slice(0, 240)}`;
+    if (lastChatHistoryKey.current === key) return;
+    lastChatHistoryKey.current = key;
+    const markdown = formatBriefMarkdown(answer, "chat");
+    setLastMarkdown(markdown);
+    setHistory((prev) =>
+      pushBriefHistory(prev, {
+        source,
+        mode: source === "compare" ? "general" : mode,
+        label: historyLabel({
+          source,
+          repo,
+          goal,
+          question: question || answer.slice(0, 56),
+          packageName,
+          packageRegistry,
+          tagA,
+          tagB,
+        }),
+        question: question || "(chat)",
+        answer,
+        markdown,
+        meta: "chat",
+        repo: repo || undefined,
+        repoB: repoB || undefined,
+        url: url || undefined,
+        goal: source === "auto" || source === "trending" ? goal || undefined : undefined,
+        packageName: source === "package" ? packageName || undefined : undefined,
+        packageRegistry: source === "package" ? packageRegistry : undefined,
+        tagA: source === "releases" ? tagA || undefined : undefined,
+        tagB: source === "releases" ? tagB || undefined : undefined,
+      }),
+    );
+  }, [
+    isLoading,
+    messages,
+    pipelineBusy,
+    source,
+    mode,
+    repo,
+    repoB,
+    url,
+    goal,
+    packageName,
+    packageRegistry,
+    tagA,
+    tagB,
+  ]);
+
+  useEffect(() => {
+    if (skipPersist.current) return;
     try {
       localStorage.setItem(
         STORE_KEY,
@@ -818,6 +1027,7 @@ export default function Page() {
           .join(" · ");
         const markdown = formatBriefMarkdown(body.answer, meta);
         setLastMarkdown(markdown);
+        skipNextChatHistory.current = true;
         setHistory((prev) =>
           pushBriefHistory(prev, {
             source: s,
@@ -942,7 +1152,7 @@ export default function Page() {
   );
 
   const openHistoryEntry = useCallback(
-    async (entry: BriefHistoryEntry) => {
+    (entry: BriefHistoryEntry) => {
       setSource(entry.source);
       setMode(entry.mode);
       if (entry.repo) setRepoInput(entry.repo);
@@ -954,19 +1164,15 @@ export default function Page() {
       if (entry.tagA) setTagA(entry.tagA);
       if (entry.tagB) setTagB(entry.tagB);
       setLastMarkdown(entry.markdown);
-      await appendMessage(
-        new TextMessage({
-          role: Role.User,
-          content: entry.question || entry.label,
-        }),
-        { followUp: false },
-      ).catch(() => undefined);
-      await appendMessage(
-        new TextMessage({ role: Role.Assistant, content: entry.markdown }),
-        { followUp: false },
-      ).catch(() => undefined);
+      skipNextChatHistory.current = true;
+      const { question } = chatMessagesFromHistory(entry);
+      setPinned({
+        id: entry.id,
+        user: question,
+        assistant: entry.markdown,
+      });
     },
-    [appendMessage],
+    [setPinned],
   );
 
   const copyMarkdown = useCallback(async (markdown: string) => {
@@ -1053,32 +1259,6 @@ export default function Page() {
             ? `MCP online · v${mcpVersion} · brief_auto`
             : `MCP online · v${mcpVersion} · compat mode`;
 
-  const chatHint = !mcpReady
-    ? "Waiting for MCP… if this sticks, Manual Deploy brief-desk on Render."
-    : !ready
-      ? source === "auto"
-        ? "Write a goal with owner/name or https://… then Run agent."
-        : "Fill the left panel, click Start brief, or pick a demo."
-      : source === "auto"
-        ? hasBriefAuto
-          ? "Ready. Run agent → brief_auto → draft → eval."
-          : "Ready (compat). Run agent → brief_plan → orchestrate → eval."
-        : source === "trending"
-          ? `Ready. Trending ${
-              TRENDING_LANGUAGES.find((o) => o.value === languageInput)?.label || "Any"
-            } · ${TRENDING_SINCE.find((o) => o.value === sinceInput)?.label || sinceInput}.`
-          : source === "package"
-            ? `Ready. ${packageRegistry} · ${packageName}.`
-            : source === "releases"
-              ? `Ready. ${repo} · ${tagA} → ${tagB}.`
-              : source === "compare"
-                ? `Ready to compare ${repo} vs ${repoB}.`
-                : source === "url"
-                  ? "Docs URL ready."
-                  : source === "corpus"
-                    ? "Corpus sample ready."
-                    : `Repo ${repo} · ${mode} ready.`;
-
   const startQuestion =
     source === "auto"
       ? goal
@@ -1099,7 +1279,7 @@ export default function Page() {
                   : defaultQ?.[mode] || "Give a concise engineering brief with citations.";
 
   return (
-    <TranscriptProvider>
+    <>
       <ToolCards />
       <main className="desk-shell">
         <aside className="desk-controls">
@@ -1150,6 +1330,11 @@ export default function Page() {
           {mcpVersionWarn ? (
             <p className="mcp-warn" role="status">
               {mcpVersionWarn}
+            </p>
+          ) : null}
+          {syncError ? (
+            <p className="mcp-warn" role="status">
+              Cloud sync: {syncError}
             </p>
           ) : null}
 
@@ -1432,10 +1617,11 @@ export default function Page() {
 
           <BriefHistory
             entries={history}
-            onOpen={(e) => void openHistoryEntry(e)}
+            onOpen={openHistoryEntry}
             onClear={() => {
               setHistory([]);
               saveBriefHistory([]);
+              if (cloudUserId) void clearRemoteHistory();
             }}
             onCopy={(md) => void copyMarkdown(md)}
           />
@@ -1510,7 +1696,9 @@ export default function Page() {
             <CopilotChat
               labels={{
                 title: "brief-desk",
-                initial: chatHint,
+                // Empty: History restore is rendered by LoggingMessages via pinned
+                // thread. A changing `initial` string used to wipe the chat.
+                initial: "",
               }}
               className="h-full"
               Messages={LoggingMessages}
@@ -1519,6 +1707,6 @@ export default function Page() {
         </section>
         <AgentLog />
       </main>
-    </TranscriptProvider>
+    </>
   );
 }

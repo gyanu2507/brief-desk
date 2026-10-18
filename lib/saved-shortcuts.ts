@@ -29,3 +29,17 @@ export function isSavedBrief(value: unknown): value is SavedBrief {
     typeof v.mode === "string"
   );
 }
+
+/** Read saved shortcuts from the session localStorage blob. */
+export function loadLocalSaved(storeKey: string): SavedBrief[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(storeKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { saved?: unknown };
+    if (!Array.isArray(parsed.saved)) return [];
+    return parsed.saved.filter(isSavedBrief).slice(0, SAVED_MAX);
+  } catch {
+    return [];
+  }
+}

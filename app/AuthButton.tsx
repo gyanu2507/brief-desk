@@ -22,14 +22,9 @@ export function AuthButton({ onUserChange }: Props) {
       return;
     }
     const supabase = createClient();
-    let cancelled = false;
 
-    void supabase.auth.getUser().then(({ data }) => {
-      if (cancelled) return;
-      setUser(data.user);
-      onUserChangeRef.current?.(data.user);
-    });
-
+    // Only onAuthStateChange (includes INITIAL_SESSION). Calling getUser + this
+    // double-fires sync and can wipe history with a racing empty merge.
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       const next = session?.user ?? null;
       setUser(next);
@@ -37,7 +32,6 @@ export function AuthButton({ onUserChange }: Props) {
     });
 
     return () => {
-      cancelled = true;
       sub.subscription.unsubscribe();
     };
   }, [configured]);

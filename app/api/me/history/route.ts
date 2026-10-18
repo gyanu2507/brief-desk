@@ -14,6 +14,24 @@ function asEntry(row: { id: string; at: number; payload: unknown }): BriefHistor
   return entry;
 }
 
+export async function DELETE() {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json({ error: "supabase_disabled" }, { status: 503 });
+  }
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const { error } = await supabase.from("brief_history").delete().eq("user_id", user.id);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
+}
+
 export async function GET() {
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: "supabase_disabled" }, { status: 503 });
@@ -92,16 +110,21 @@ export async function PUT(request: Request) {
     }
   }
 
-  const keep = new Set(rows.map((r) => r.id));
-  const toDelete = (existing || []).map((r) => r.id).filter((id) => !keep.has(id));
-  if (toDelete.length > 0) {
-    const { error: delErr } = await supabase
-      .from("brief_history")
-      .delete()
-      .eq("user_id", user.id)
-      .in("id", toDelete);
-    if (delErr) {
-      return NextResponse.json({ error: delErr.message }, { status: 500 });
+  // Only delete missing ids when the client sent a non-empty set. An empty PUT
+  // from a race used to wipe the whole cloud history; Clear still works via
+  // replacing with [] only after an explicit upsert path that sends entries.
+  if (rows.length > 0) {
+    const keep = new Set(rows.map((r) => r.id));
+    const toDelete = (existing || []).map((r) => r.id).filter((id) => !keep.has(id));
+    if (toDelete.length > 0) {
+      const { error: delErr } = await supabase
+        .from("brief_history")
+        .delete()
+        .eq("user_id", user.id)
+        .in("id", toDelete);
+      if (delErr) {
+        return NextResponse.json({ error: delErr.message }, { status: 500 });
+      }
     }
   }
 

@@ -1,16 +1,28 @@
 import type { BriefHistoryEntry } from "./brief-history";
 import type { SavedBrief } from "./saved-shortcuts";
 
-async function readJson<T>(res: Response): Promise<T | null> {
-  if (res.status === 401 || res.status === 503) return null;
-  if (!res.ok) return null;
-  return (await res.json()) as T;
+export type SyncFetchResult<T> =
+  | { ok: true; entries: T[] }
+  | { ok: false; status: number; error?: string };
+
+async function fetchEntries<T>(
+  path: string,
+): Promise<SyncFetchResult<T>> {
+  const res = await fetch(path, { cache: "no-store" });
+  let body: { entries?: T[]; error?: string } = {};
+  try {
+    body = (await res.json()) as { entries?: T[]; error?: string };
+  } catch {
+    // ignore
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: body.error || res.statusText };
+  }
+  return { ok: true, entries: Array.isArray(body.entries) ? body.entries : [] };
 }
 
-export async function fetchRemoteHistory(): Promise<BriefHistoryEntry[] | null> {
-  const res = await fetch("/api/me/history", { cache: "no-store" });
-  const body = await readJson<{ entries?: BriefHistoryEntry[] }>(res);
-  return body?.entries ?? null;
+export async function fetchRemoteHistory(): Promise<SyncFetchResult<BriefHistoryEntry>> {
+  return fetchEntries<BriefHistoryEntry>("/api/me/history");
 }
 
 export async function pushRemoteHistory(entries: BriefHistoryEntry[]): Promise<boolean> {
@@ -22,10 +34,13 @@ export async function pushRemoteHistory(entries: BriefHistoryEntry[]): Promise<b
   return res.ok;
 }
 
-export async function fetchRemoteSaved(): Promise<SavedBrief[] | null> {
-  const res = await fetch("/api/me/saved", { cache: "no-store" });
-  const body = await readJson<{ entries?: SavedBrief[] }>(res);
-  return body?.entries ?? null;
+export async function clearRemoteHistory(): Promise<boolean> {
+  const res = await fetch("/api/me/history", { method: "DELETE" });
+  return res.ok;
+}
+
+export async function fetchRemoteSaved(): Promise<SyncFetchResult<SavedBrief>> {
+  return fetchEntries<SavedBrief>("/api/me/saved");
 }
 
 export async function pushRemoteSaved(entries: SavedBrief[]): Promise<boolean> {

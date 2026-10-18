@@ -28,7 +28,9 @@ export function BriefHistory({ entries, onOpen, onClear, onCopy }: Props) {
     return (
       <div className="brief-history">
         <p className="section-label">History</p>
-        <p className="brief-history-empty">Finished briefs show up here for reopen / export.</p>
+        <p className="brief-history-empty">
+          Finished briefs and chat replies show up here for reopen / export.
+        </p>
       </div>
     );
   }

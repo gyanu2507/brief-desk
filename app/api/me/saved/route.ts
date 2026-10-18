@@ -89,16 +89,18 @@ export async function PUT(request: Request) {
     }
   }
 
-  const keep = new Set(rows.map((r) => r.id));
-  const toDelete = (existing || []).map((r) => r.id).filter((id) => !keep.has(id));
-  if (toDelete.length > 0) {
-    const { error: delErr } = await supabase
-      .from("saved_shortcuts")
-      .delete()
-      .eq("user_id", user.id)
-      .in("id", toDelete);
-    if (delErr) {
-      return NextResponse.json({ error: delErr.message }, { status: 500 });
+  if (rows.length > 0) {
+    const keep = new Set(rows.map((r) => r.id));
+    const toDelete = (existing || []).map((r) => r.id).filter((id) => !keep.has(id));
+    if (toDelete.length > 0) {
+      const { error: delErr } = await supabase
+        .from("saved_shortcuts")
+        .delete()
+        .eq("user_id", user.id)
+        .in("id", toDelete);
+      if (delErr) {
+        return NextResponse.json({ error: delErr.message }, { status: 500 });
+      }
     }
   }
 

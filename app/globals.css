@@ -859,6 +859,96 @@ select.field option,
   min-height: 0;
 }
 
+/* History restore: always full contrast (CopilotKit was fading these away). */
+.restored-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px 8px;
+  opacity: 1 !important;
+  color: var(--ink);
+}
+
+.restored-brief-user,
+.restored-brief-assistant {
+  opacity: 1 !important;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--query-bg);
+  padding: 10px 12px;
+}
+
+.restored-brief-assistant {
+  background: var(--processing-bg);
+}
+
+.restored-brief-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.restored-brief-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  opacity: 1 !important;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.restored-brief-md {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  opacity: 1 !important;
+}
+
+.restored-brief-md p,
+.restored-brief-md li,
+.restored-brief-md strong {
+  color: var(--ink);
+  opacity: 1 !important;
+}
+
+.restored-brief-md p {
+  margin: 0 0 0.6em;
+}
+
+.restored-brief-md p:last-child {
+  margin-bottom: 0;
+}
+
+.restored-brief-md h1,
+.restored-brief-md h2,
+.restored-brief-md h3 {
+  color: var(--ink);
+  margin: 0.75em 0 0.35em;
+  font-size: 15px;
+}
+
+.restored-brief-md ul,
+.restored-brief-md ol {
+  margin: 0.4em 0 0.6em;
+  padding-left: 1.25em;
+}
+
+.restored-brief-md code {
+  font-size: 0.9em;
+}
+
+.restored-brief-note {
+  margin: 0 2px 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .desk-chat .copilotKitAssistantMessage,
 .desk-chat .copilotKitMessage {
   line-height: 1.5;
