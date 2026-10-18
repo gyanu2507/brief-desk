@@ -34,6 +34,12 @@ import {
   TRENDING_LANGUAGES,
   TRENDING_SINCE,
 } from "../lib/select-options";
+import {
+  buildSessionSearch,
+  buildSessionUrl,
+  parseSessionSearch,
+  type SessionLinkState,
+} from "../lib/session-link";
 import { renderTemplate } from "../lib/template";
 import type { BriefMode, PackageRegistry, PromptUi, SourceKind } from "../lib/types";
 
@@ -136,6 +142,39 @@ function sessionNote(
   return notes.corpus;
 }
 
+function applySessionLink(
+  state: SessionLinkState,
+  setters: {
+    setSource: (v: SourceKind) => void;
+    setMode: (v: BriefMode) => void;
+    setRepoInput: (v: string) => void;
+    setRepoBInput: (v: string) => void;
+    setUrlInput: (v: string) => void;
+    setGoalInput: (v: string) => void;
+    setLanguageInput: (v: string) => void;
+    setSinceInput: (v: "daily" | "weekly" | "monthly") => void;
+    setPackageRegistry: (v: PackageRegistry) => void;
+    setPackageInput: (v: string) => void;
+    setTagA: (v: string) => void;
+    setTagB: (v: string) => void;
+  },
+) {
+  setters.setSource(state.source);
+  if (state.mode) setters.setMode(state.mode);
+  if (state.repo) setters.setRepoInput(state.repo);
+  if (state.repoB) setters.setRepoBInput(state.repoB);
+  if (state.url) setters.setUrlInput(state.url);
+  if (state.goal) setters.setGoalInput(state.goal);
+  if (state.language && isKnownLanguage(state.language)) {
+    setters.setLanguageInput(state.language);
+  }
+  if (state.since) setters.setSinceInput(state.since);
+  if (state.packageRegistry) setters.setPackageRegistry(state.packageRegistry);
+  if (state.packageName) setters.setPackageInput(state.packageName);
+  if (state.tagA) setters.setTagA(state.tagA);
+  if (state.tagB) setters.setTagB(state.tagB);
+}
+
 export default function Page() {
   const { isLoading, appendMessage, stopGeneration } = useCopilotChatInternal();
   const [source, setSource] = useState<SourceKind>("auto");
@@ -154,6 +193,8 @@ export default function Page() {
   const [saved, setSaved] = useState<SavedBrief[]>([]);
   const [history, setHistory] = useState<BriefHistoryEntry[]>([]);
   const [lastMarkdown, setLastMarkdown] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const skipUrlWrite = useRef(true);
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
   const [mcpVersion, setMcpVersion] = useState<string>("");
   const [mcpTools, setMcpTools] = useState<string[]>([]);
@@ -179,51 +220,84 @@ export default function Page() {
   useEffect(() => {
     try {
       setHistory(loadBriefHistory());
-      const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) {
-        const legacy = localStorage.getItem("brief-desk-repo");
-        if (legacy) setRepoInput(legacy);
-        return;
+      const fromUrl = parseSessionSearch(
+        typeof window !== "undefined" ? window.location.search : "",
+      );
+      if (fromUrl) {
+        applySessionLink(fromUrl, {
+          setSource,
+          setMode,
+          setRepoInput,
+          setRepoBInput,
+          setUrlInput,
+          setGoalInput,
+          setLanguageInput,
+          setSinceInput,
+          setPackageRegistry,
+          setPackageInput,
+          setTagA,
+          setTagB,
+        });
+      } else {
+        const raw = localStorage.getItem(STORE_KEY);
+        if (!raw) {
+          const legacy = localStorage.getItem("brief-desk-repo");
+          if (legacy) setRepoInput(legacy);
+        } else {
+          const parsed = JSON.parse(raw) as {
+            source?: SourceKind;
+            mode?: BriefMode;
+            repo?: string;
+            repoB?: string;
+            url?: string;
+            goal?: string;
+            language?: string;
+            since?: "daily" | "weekly" | "monthly";
+            packageRegistry?: PackageRegistry;
+            packageName?: string;
+            tagA?: string;
+            tagB?: string;
+            saved?: SavedBrief[];
+          };
+          if (parsed.source) setSource(parsed.source);
+          if (parsed.mode) setMode(parsed.mode);
+          if (parsed.repo) setRepoInput(parsed.repo);
+          if (parsed.repoB) setRepoBInput(parsed.repoB);
+          if (parsed.url) setUrlInput(parsed.url);
+          if (parsed.goal) setGoalInput(parsed.goal);
+          if (typeof parsed.language === "string" && isKnownLanguage(parsed.language)) {
+            setLanguageInput(parsed.language);
+          }
+          if (parsed.since === "daily" || parsed.since === "weekly" || parsed.since === "monthly") {
+            setSinceInput(parsed.since);
+          }
+          if (parsed.packageRegistry === "npm" || parsed.packageRegistry === "pypi") {
+            setPackageRegistry(parsed.packageRegistry);
+          }
+          if (typeof parsed.packageName === "string" && parsed.packageName.trim()) {
+            setPackageInput(parsed.packageName);
+          }
+          if (typeof parsed.tagA === "string") setTagA(parsed.tagA);
+          if (typeof parsed.tagB === "string") setTagB(parsed.tagB);
+          if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, 8));
+        }
       }
-      const parsed = JSON.parse(raw) as {
-        source?: SourceKind;
-        mode?: BriefMode;
-        repo?: string;
-        repoB?: string;
-        url?: string;
-        goal?: string;
-        language?: string;
-        since?: "daily" | "weekly" | "monthly";
-        packageRegistry?: PackageRegistry;
-        packageName?: string;
-        tagA?: string;
-        tagB?: string;
-        saved?: SavedBrief[];
-      };
-      if (parsed.source) setSource(parsed.source);
-      if (parsed.mode) setMode(parsed.mode);
-      if (parsed.repo) setRepoInput(parsed.repo);
-      if (parsed.repoB) setRepoBInput(parsed.repoB);
-      if (parsed.url) setUrlInput(parsed.url);
-      if (parsed.goal) setGoalInput(parsed.goal);
-      if (typeof parsed.language === "string" && isKnownLanguage(parsed.language)) {
-        setLanguageInput(parsed.language);
+      // Still restore saved shortcuts from localStorage even when URL wins.
+      const rawSaved = localStorage.getItem(STORE_KEY);
+      if (rawSaved && fromUrl) {
+        try {
+          const parsed = JSON.parse(rawSaved) as { saved?: SavedBrief[] };
+          if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, 8));
+        } catch {
+          // ignore
+        }
       }
-      if (parsed.since === "daily" || parsed.since === "weekly" || parsed.since === "monthly") {
-        setSinceInput(parsed.since);
-      }
-      if (parsed.packageRegistry === "npm" || parsed.packageRegistry === "pypi") {
-        setPackageRegistry(parsed.packageRegistry);
-      }
-      if (typeof parsed.packageName === "string" && parsed.packageName.trim()) {
-        setPackageInput(parsed.packageName);
-      }
-      if (typeof parsed.tagA === "string") setTagA(parsed.tagA);
-      if (typeof parsed.tagB === "string") setTagB(parsed.tagB);
-      if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, 8));
     } catch {
       // ignore
     }
+    window.setTimeout(() => {
+      skipUrlWrite.current = false;
+    }, 0);
   }, []);
 
   useEffect(() => {
@@ -268,6 +342,63 @@ export default function Page() {
     tagB,
     saved,
   ]);
+
+  const sessionLinkState = useMemo<SessionLinkState>(
+    () => ({
+      source,
+      mode,
+      repo: repoInput.trim() || undefined,
+      repoB: repoBInput.trim() || undefined,
+      url: urlInput.trim() || undefined,
+      goal: goalInput.trim() || undefined,
+      language: languageInput,
+      since: sinceInput,
+      packageRegistry,
+      packageName: packageInput.trim() || undefined,
+      tagA: tagA.trim() || undefined,
+      tagB: tagB.trim() || undefined,
+    }),
+    [
+      source,
+      mode,
+      repoInput,
+      repoBInput,
+      urlInput,
+      goalInput,
+      languageInput,
+      sinceInput,
+      packageRegistry,
+      packageInput,
+      tagA,
+      tagB,
+    ],
+  );
+
+  useEffect(() => {
+    if (skipUrlWrite.current) return;
+    const next = buildSessionSearch(sessionLinkState);
+    const path = window.location.pathname || "/";
+    const target = next ? `${path}?${next}` : path;
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (current !== target) {
+      window.history.replaceState(null, "", target);
+    }
+  }, [sessionLinkState]);
+
+  const copySessionLink = useCallback(async () => {
+    const href = buildSessionUrl(
+      window.location.origin,
+      window.location.pathname || "/",
+      sessionLinkState,
+    );
+    try {
+      await navigator.clipboard.writeText(href);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 1600);
+    } catch {
+      // ignore
+    }
+  }, [sessionLinkState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -962,6 +1093,19 @@ export default function Page() {
               {mcpVersionWarn}
             </p>
           ) : null}
+
+          <div className="brief-export-bar">
+            <span className="brief-export-label">Session</span>
+            <div className="brief-export-actions">
+              <button
+                type="button"
+                className="chip history-action"
+                onClick={() => void copySessionLink()}
+              >
+                {linkCopied ? "Link copied" : "Copy link"}
+              </button>
+            </div>
+          </div>
 
           <BriefExportBar
             markdown={lastMarkdown}
