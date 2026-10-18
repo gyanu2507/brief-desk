@@ -25,9 +25,10 @@ export const FALLBACK_UI: PromptUi = {
   suggest: {
     auto: [
       "Brief facebook/react risks for an eng manager.",
-      "Compare vercel/next.js vs remix-run/remix for a SaaS frontend.",
       "What TypeScript repos are trending on GitHub this week?",
       "Find React form libraries with strong TypeScript support.",
+      "Brief the npm package zod for an engineer picking a schema lib.",
+      "Brief the pypi package httpx for an async HTTP client choice.",
     ],
     github: [
       "What are the main features?",
@@ -83,18 +84,18 @@ export const FALLBACK_UI: PromptUi = {
       question: "Rank this week's trending TypeScript repos for a frontend team.",
     },
     {
+      label: "Auto · npm zod",
+      source: "auto" as SourceKind,
+      mode: "general" as BriefMode,
+      goal: "Brief the npm package zod for an engineer picking a schema lib.",
+      question: "Brief the npm package zod for an engineer picking a schema lib.",
+    },
+    {
       label: "Auto · Find form libs",
       source: "auto" as SourceKind,
       mode: "general" as BriefMode,
       goal: "Find React form libraries with strong TypeScript support. Shortlist with stars and fit.",
       question: "Find React form libraries with strong TypeScript support. Shortlist with stars and fit.",
-    },
-    {
-      label: "Auto · Next vs Remix",
-      source: "auto" as SourceKind,
-      mode: "general" as BriefMode,
-      goal: "Compare vercel/next.js vs remix-run/remix for a production SaaS frontend. Cite README facts.",
-      question: "Compare vercel/next.js vs remix-run/remix for a production SaaS frontend. Cite README facts.",
     },
     {
       label: "Guided · React risks",

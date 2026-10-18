@@ -302,7 +302,7 @@ export default function Page() {
   const mcpBlocked = mcpOk === false || (mcpOk === true && !hasOrchestrate);
   const mcpVersionWarn =
     mcpOk === true && source === "trending" && !hasTrendingTool
-      ? `MCP v${mcpVersion || "?"} is missing brief_github_trending. Redeploy Render (Dockerfile) to 0.9.0+.`
+      ? `MCP v${mcpVersion || "?"} is missing brief_github_trending. Redeploy Render (Dockerfile) to 0.10.0+.`
       : null;
 
   const contextValue = useMemo(() => {

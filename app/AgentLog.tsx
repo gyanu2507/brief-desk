@@ -87,6 +87,10 @@ function routeForTool(name: string): string {
       return "MCP → github.com/trending scrape";
     case "brief_github_search":
       return "MCP → GitHub repo search API";
+    case "brief_npm_package":
+      return "MCP → npm registry";
+    case "brief_pypi_package":
+      return "MCP → PyPI JSON API";
     case "brief_repo_ask":
       return "MCP → GitHub (README + issues + code + releases)";
     case "brief_repo_overview":
@@ -95,6 +99,8 @@ function routeForTool(name: string): string {
       return "MCP → GitHub Contents API";
     case "brief_repo_releases":
       return "MCP → GitHub Releases API";
+    case "brief_repo_release_diff":
+      return "MCP → compare two release tags";
     case "brief_repo_security":
       return "MCP → GitHub Security Advisories";
     case "brief_corpus":

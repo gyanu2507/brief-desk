@@ -54,7 +54,16 @@ npm run dev
 ```
 
 - UI: http://localhost:3000
-- Python MCP health: http://127.0.0.1:3108/health (`runtime: python`, `version: 0.9.0`)
+- Python MCP health: http://127.0.0.1:3108/health (`runtime: python`, `version: 0.10.0`)
+
+### Docker Compose
+
+```bash
+cp .env.example .env.local   # set OPENAI_API_KEY
+docker compose up --build
+```
+
+Same ports: UI `:3000`, MCP `:3108`.
 
 Legacy TypeScript MCP (optional): `npm run dev:mcp:ts`
 
@@ -62,12 +71,14 @@ Legacy TypeScript MCP (optional): `npm run dev:mcp:ts`
 
 | Source | What you set | Behavior |
 |---|---|---|
-| **Auto** | free-form goal with `owner/name`, URL, trending, or “find libs…” | `brief_auto` then draft/eval |
+| **Auto** | free-form goal with `owner/name`, URL, npm/PyPI package, trending, or “find libs…” | `brief_auto` then draft/eval |
 | **Trending** | language + daily/weekly/monthly | live GitHub trending shortlist |
 | GitHub | `owner/name` + brief type | guided orchestrate (+ releases/security on risks) |
 | Docs | public URL | fetch + brief |
 | Compare | two repos | side-by-side |
 | Corpus | none | bundled `mcp/corpus` docs |
+
+Package goals like “Brief the npm package zod” invent `source_kind: package` and call `brief_npm_package` / `brief_pypi_package`. Release deltas use `brief_repo_release_diff`.
 
 ## Verify
 
@@ -81,7 +92,7 @@ curl -s -X POST http://localhost:3000/api/brief-run \
 
 CI runs the same suite on every push/PR (`.github/workflows/ci.yml`).
 
-**Render:** deploy with the root `Dockerfile` (Python MCP). After deploy, `/health` should show `"runtime":"python"` and `"version":"0.9.0"`.
+**Render:** deploy with the root `Dockerfile` (Python MCP). After deploy, `/health` should show `"runtime":"python"` and `"version":"0.10.0"`.
 
 **Vercel:** point `MCP_URL` at that Render `/mcp` endpoint.
 

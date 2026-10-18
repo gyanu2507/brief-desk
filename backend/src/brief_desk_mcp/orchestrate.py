@@ -12,6 +12,7 @@ from brief_desk_mcp.discover import (
     fetch_trending,
     search_github_repos,
 )
+from brief_desk_mcp.packages import lookup_npm, lookup_pypi
 from brief_desk_mcp.github_tools import (
     fetch_public_url,
     fetch_repo_ask,
@@ -129,6 +130,28 @@ async def run_auto(goal: str) -> str:
             "guidance": (
                 "Draft a ranked shortlist from trending.repos. Cite the trending URL and each repo. "
                 "Then brief_eval. Do not gather again."
+            ),
+        }
+        return json.dumps(packed, indent=2)
+
+    if kind == "package":
+        gather_pkg: dict[str, Any] = {}
+        if invented.get("npm_package"):
+            gather_pkg["npm"] = await lookup_npm(str(invented["npm_package"]))
+        if invented.get("pypi_package"):
+            gather_pkg["pypi"] = await lookup_pypi(str(invented["pypi_package"]))
+        if not gather_pkg:
+            # Infer from goal text if invent missed the name.
+            if re.search(r"\bnpm\b", goal, re.I):
+                gather_pkg["npm"] = await lookup_npm(goal.split()[-1])
+            else:
+                gather_pkg["pypi"] = await lookup_pypi(goal.split()[-1])
+        packed = {
+            **plan,
+            "gather": gather_pkg,
+            "guidance": (
+                "Draft a package brief from gather (version, license, deps, linked repo). "
+                "Cite registry URL. Then brief_eval."
             ),
         }
         return json.dumps(packed, indent=2)

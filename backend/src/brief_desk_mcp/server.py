@@ -28,6 +28,7 @@ from brief_desk_mcp.discover import (
     search_github_repos,
 )
 from brief_desk_mcp.orchestrate import run_auto, run_orchestrate
+from brief_desk_mcp.packages import diff_repo_releases, lookup_npm, lookup_pypi
 from brief_desk_mcp.plan import build_autonomous_plan, normalize_github_repo
 from brief_desk_mcp.web_search import search_web
 
@@ -40,10 +41,13 @@ TOOLS = [
     "brief_web_search",
     "brief_github_trending",
     "brief_github_search",
+    "brief_npm_package",
+    "brief_pypi_package",
     "brief_repo_ask",
     "brief_repo_overview",
     "brief_repo_file",
     "brief_repo_releases",
+    "brief_repo_release_diff",
     "brief_repo_security",
     "brief_corpus",
     "stack_info",
@@ -279,6 +283,44 @@ async def brief_repo_security(repo: str, max_results: int = 8) -> str:
 
 
 @mcp.tool(
+    name="brief_npm_package",
+    description="Look up a public npm package (latest version, deps, repo link). No API key.",
+)
+async def brief_npm_package(name: str) -> str:
+    try:
+        return _json(await lookup_npm(name))
+    except Exception as e:
+        raise ToolError(f"brief_npm_package failed: {e}") from e
+
+
+@mcp.tool(
+    name="brief_pypi_package",
+    description="Look up a public PyPI package (latest version, requires, repo link). No API key.",
+)
+async def brief_pypi_package(name: str) -> str:
+    try:
+        return _json(await lookup_pypi(name))
+    except Exception as e:
+        raise ToolError(f"brief_pypi_package failed: {e}") from e
+
+
+@mcp.tool(
+    name="brief_repo_release_diff",
+    description="Compare two GitHub release tags for a repo (notes side-by-side).",
+)
+async def brief_repo_release_diff(repo: str, tag_a: str, tag_b: str) -> str:
+    target = normalize_github_repo(repo or os.environ.get("BRIEF_REPO"))
+    if not target:
+        raise ToolError("repo is required (owner/name)")
+    if not (tag_a or "").strip() or not (tag_b or "").strip():
+        raise ToolError("tag_a and tag_b are required")
+    try:
+        return _json(await diff_repo_releases(target, tag_a.strip(), tag_b.strip()))
+    except Exception as e:
+        raise ToolError(f"brief_repo_release_diff failed: {e}") from e
+
+
+@mcp.tool(
     name="stack_info",
     description="Describe the brief-desk protocol stack.",
 )
@@ -290,8 +332,9 @@ async def stack_info() -> str:
             "tools": "MCP Streamable HTTP (Python)",
             "loop": "brief_auto (plan+gather) → draft → brief_eval → revise",
             "backends": [
-                "GitHub (overview/ask/file/releases/security)",
+                "GitHub (overview/ask/file/releases/security/diff)",
                 "GitHub trending scrape + repo search",
+                "npm + PyPI package lookup",
                 "public URL fetch",
                 "DuckDuckGo Instant Answer (brief_web_search)",
                 "bundled mcp/corpus",
@@ -315,6 +358,8 @@ def _allowed_hosts() -> list[str]:
         "localhost:*",
         "127.0.0.1",
         "127.0.0.1:*",
+        "mcp",
+        "mcp:*",
         "brief-desk.onrender.com",
         "brief-desk.onrender.com:*",
         *extra,

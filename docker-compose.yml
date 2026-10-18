@@ -1,0 +1,47 @@
+# Local full stack: Python MCP + Next.js UI
+#   cp .env.example .env.local   # fill OPENAI_API_KEY (Groq)
+#   docker compose up --build
+#
+# UI:  http://localhost:3000
+# MCP: http://127.0.0.1:3108/health
+
+services:
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3108:3108"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3108"
+      MCP_ALLOWED_HOSTS: "mcp,mcp:3108,ui,localhost,127.0.0.1"
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3108/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  ui:
+    image: node:22-bookworm
+    working_dir: /app
+    volumes:
+      - .:/app
+      - brief_desk_node_modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      MCP_URL: http://mcp:3108/mcp
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.groq.com/openai/v1}
+      COPILOTKIT_AGENT_MODEL: ${COPILOTKIT_AGENT_MODEL:-openai:qwen/qwen3.8-27b}
+      COPILOTKIT_TELEMETRY_DISABLED: "true"
+    depends_on:
+      mcp:
+        condition: service_healthy
+    command: >
+      sh -c "npm ci && npm run dev:ui -- --hostname 0.0.0.0 -p 3000"
+
+volumes:
+  brief_desk_node_modules:

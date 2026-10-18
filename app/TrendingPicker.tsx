@@ -90,7 +90,7 @@ export function TrendingPicker({
       {error ? <p className="trending-picker-error">{error}</p> : null}
       {repos.length === 0 && !loading ? (
         <p className="trending-picker-empty">
-          No repos yet. Rank trending, or check MCP is on 0.9.0+.
+          No repos yet. Rank trending, or check MCP is on 0.10.0+.
         </p>
       ) : (
         <ul className="trending-picker-list">

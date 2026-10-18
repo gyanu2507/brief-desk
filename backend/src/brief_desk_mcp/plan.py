@@ -109,6 +109,26 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
         )
     ) or bool(re.search(r"\b(best|top)\b.*\b(libraries|frameworks|repos?)\b", goal, flags=re.I))
 
+    npm_pkg = None
+    pypi_pkg = None
+    npm_m = re.search(
+        r"\bnpm\s+(?:package\s+)?(@?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)\b",
+        goal,
+        flags=re.I,
+    ) or re.search(
+        r"\b(?:package|pkg)\s+(@[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\b",
+        goal,
+        flags=re.I,
+    )
+    if npm_m:
+        npm_pkg = npm_m.group(1)
+    pypi_m = re.search(r"\bpypi\s+(?:package\s+)?([A-Za-z0-9_.-]+)\b", goal, flags=re.I)
+    if pypi_m:
+        pypi_pkg = pypi_m.group(1)
+    want_package = bool(npm_pkg or pypi_pkg) or bool(
+        re.search(r"\b(npm|pypi)\b.*\b(package|version|deps|dependencies)\b", goal, flags=re.I)
+    )
+
     language = None
     lang_m = re.search(
         r"\b(typescript|javascript|python|rust|go|golang|java|kotlin|swift|ruby|php|c\+\+|c#|csharp|vue|svelte)\b",
@@ -133,6 +153,8 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
     source_kind = "auto"
     if mode == "compare" and len(repos) >= 2:
         source_kind = "compare"
+    elif want_package and not repos:
+        source_kind = "package"
     elif want_trending and not repos:
         source_kind = "trending"
     elif want_repo_search and not repos and not docs_urls:
@@ -150,6 +172,13 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
     if source_kind == "compare" or (mode == "compare" and len(repos) >= 2):
         subgoals.append(f"Compare {repos[0]} vs {repos[1]} on purpose, stack, maturity")
         subgoals.append("Call out when to pick which")
+    elif source_kind == "package":
+        subgoals.extend(
+            [
+                f"Look up {'npm ' + npm_pkg if npm_pkg else 'PyPI ' + (pypi_pkg or 'package')}",
+                "Summarize latest version, license, deps, and linked repo",
+            ]
+        )
     elif source_kind == "trending":
         subgoals.extend(
             [
@@ -186,6 +215,12 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
 
     if source_kind == "corpus":
         tool_steps = ["brief_auto (or brief_corpus)", "draft from evidence", "brief_eval"]
+    elif source_kind == "package":
+        tool_steps = [
+            "brief_npm_package or brief_pypi_package",
+            "optional: brief_repo_overview if repository is GitHub",
+            "draft + brief_eval",
+        ]
     elif source_kind == "trending":
         tool_steps = [
             "brief_github_trending",
@@ -221,6 +256,8 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
             "url": docs_urls[0] if docs_urls else None,
             "language": language,
             "since": since if source_kind == "trending" else None,
+            "npm_package": npm_pkg,
+            "pypi_package": pypi_pkg,
             "subgoals": subgoals,
         },
         "tool_steps": tool_steps,
@@ -231,7 +268,9 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
         ],
         "next": (
             "Execute tool_steps now. Do not wait for the user to fill the left panel."
-            if repos or docs_urls or source_kind in ("corpus", "trending", "discover")
-            else "Goal has no extractable repo/URL. Ask one clarifying question or use discover/trending/corpus tools."
+            if repos
+            or docs_urls
+            or source_kind in ("corpus", "trending", "discover", "package")
+            else "Goal has no extractable repo/URL. Ask one clarifying question or use discover/trending/package/corpus tools."
         ),
     }
