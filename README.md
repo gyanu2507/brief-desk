@@ -1,7 +1,7 @@
 # brief-desk
 
-Agentic briefing desk: **CopilotKit** UI, **AG-UI** streaming, **MCP** tools with an
-**orchestrate → draft → eval** loop. Sources are not GitHub-only.
+Full briefing **app** (not a GitHub-only chat demo): multi-source control panel,
+**CopilotKit** chat, **AG-UI** streaming, **MCP** tools, **orchestrate → draft → eval**.
 
 ```
 Browser (CopilotKit)
@@ -40,14 +40,18 @@ npm run dev
 - UI: http://localhost:3000
 - MCP health: http://127.0.0.1:3108/health
 
-### Example asks
+### App sources (left panel)
 
-- Repo features / risks / architecture (optional `owner/name` in the sidebar)
-- `compare facebook/react vs vuejs/core`
-- `summarize https://modelcontextprotocol.io/docs/...`
-- Local corpus sample with no repo set
+| Source | What you set | Example ask in chat |
+|---|---|---|
+| GitHub | `owner/name` + brief type | features / risks / architecture / code |
+| Docs URL | `https://…` (+ optional repo) | summarize / extract APIs |
+| Compare | Repo A + Repo B | which to pick for a SaaS app |
+| Corpus | none | questions about the bundled sample docs |
 
-Default loop: **`brief_orchestrate`** then draft, then **`brief_eval`**. Revise if `pass=false`.
+Also: MCP health indicator, saved session shortcuts, agent log.
+
+Default loop: **`brief_orchestrate`** → draft → **`brief_eval`**. Revise if `pass=false`.
 
 `GITHUB_TOKEN` on the MCP host unlocks code search and higher GitHub rate limits.
 
