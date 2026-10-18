@@ -6,6 +6,7 @@ import { CopilotChat } from "@copilotkit/react-ui";
 import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
 import { AgentLog } from "./AgentLog";
 import { BrandMark } from "./BrandMark";
+import { ThemeToggle } from "./theme";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
@@ -501,31 +502,27 @@ export default function Page() {
     <TranscriptProvider>
       <main className="desk-shell">
         <aside className="desk-controls">
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              marginBottom: 6,
-            }}
-          >
-            <BrandMark size={32} />
-            <div>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 11,
-                  letterSpacing: "0.08em",
-                  color: "var(--muted)",
-                  fontWeight: 600,
-                }}
-              >
-                BRIEF-DESK
-              </p>
-              <h1 style={{ margin: "2px 0 0", fontSize: 20, lineHeight: 1.2 }}>
-                Multi-source briefing
-              </h1>
+          <div className="brand-row">
+            <div className="brand-left">
+              <BrandMark size={32} />
+              <div>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 11,
+                    letterSpacing: "0.08em",
+                    color: "var(--muted)",
+                    fontWeight: 600,
+                  }}
+                >
+                  BRIEF-DESK
+                </p>
+                <h1 style={{ margin: "2px 0 0", fontSize: 20, lineHeight: 1.2 }}>
+                  Multi-source briefing
+                </h1>
+              </div>
             </div>
+            <ThemeToggle />
           </div>
           <p style={{ margin: "0 0 12px", color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>
             One repo. GitHub, docs URLs, compare, or bundled corpus. Run agent drafts a brief with
@@ -535,13 +532,13 @@ export default function Page() {
           <div
             className="status-row"
             style={{
-              color: mcpOk === null ? "var(--muted)" : mcpReady ? "#15803d" : "#b91c1c",
+              color: mcpOk === null ? "var(--muted)" : mcpReady ? "var(--ok)" : "var(--bad)",
             }}
           >
             <span
               className="status-dot"
               style={{
-                background: mcpOk === null ? "#94a3b8" : mcpReady ? "#22c55e" : "#ef4444",
+                background: mcpOk === null ? "var(--muted)" : mcpReady ? "var(--ok)" : "var(--bad)",
               }}
             />
             {mcpLabel}
