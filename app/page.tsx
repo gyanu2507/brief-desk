@@ -7,6 +7,7 @@ import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
 import { AgentLog } from "./AgentLog";
 import { BrandMark } from "./BrandMark";
 import { PlanBoard } from "./PlanBoard";
+import { RepoCombobox } from "./RepoCombobox";
 import { ThemeToggle } from "./theme";
 import { ToolCards } from "./ToolCards";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
@@ -739,29 +740,25 @@ export default function Page() {
           ) : null}
 
           {source === "github" || source === "url" || source === "compare" ? (
-            <>
-              <p className="section-label">{source === "compare" ? "Repo A" : "GitHub repo"}</p>
-              <input
-                className="field"
-                value={repoInput}
-                onChange={(e) => setRepoInput(e.target.value)}
-                placeholder="owner/name"
-                spellCheck={false}
-              />
-            </>
+            <RepoCombobox
+              label={source === "compare" ? "Repo A" : "GitHub repo"}
+              value={repoInput}
+              onChange={setRepoInput}
+              savedRepos={saved
+                .map((s) => s.repo)
+                .filter((r): r is string => Boolean(r))}
+            />
           ) : null}
 
           {source === "compare" ? (
-            <>
-              <p className="section-label">Repo B</p>
-              <input
-                className="field"
-                value={repoBInput}
-                onChange={(e) => setRepoBInput(e.target.value)}
-                placeholder="owner/name"
-                spellCheck={false}
-              />
-            </>
+            <RepoCombobox
+              label="Repo B"
+              value={repoBInput}
+              onChange={setRepoBInput}
+              savedRepos={saved
+                .flatMap((s) => [s.repo, s.repoB])
+                .filter((r): r is string => Boolean(r))}
+            />
           ) : null}
 
           {source === "url" ? (

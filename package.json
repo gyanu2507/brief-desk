@@ -15,7 +15,7 @@
     "test:mcp": "tsx --test mcp/src/plan.test.ts mcp/src/corpus.test.ts",
     "test:mcp:py": "cd backend && uv run pytest -q",
     "test:prompts": "tsx --test lib/prompts.test.ts",
-    "test": "npm run test:mcp:py && tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts mcp/src/corpus.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/format-brief.test.ts lib/brief-run.test.ts lib/plan-board.test.ts lib/select-options.test.ts"
+    "test": "npm run test:mcp:py && tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts mcp/src/corpus.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/format-brief.test.ts lib/brief-run.test.ts lib/plan-board.test.ts lib/select-options.test.ts lib/repo-suggest.test.ts"
   },
   "dependencies": {
     "@ag-ui/client": "1.0.2",
