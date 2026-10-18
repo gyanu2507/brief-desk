@@ -1,5 +1,5 @@
 {
-  "readableDescription": "Active brief-desk session. Always prefer brief_orchestrate then brief_eval using these fields. Do not invent tool names. Follow prompts/router.md route selection.",
+  "readableDescription": "Active brief-desk session. In auto mode call brief_plan first, then execute. Otherwise prefer brief_orchestrate then brief_eval. Do not invent tool names. Follow prompts/router.md.",
   "modes": [
     { "id": "overview", "label": "Overview" },
     { "id": "risks", "label": "Risks" },
@@ -19,6 +19,11 @@
     "general": "Give a concise engineering brief with citations."
   },
   "suggest": {
+    "auto": [
+      "Brief facebook/react risks for an eng manager. Invent the plan.",
+      "Compare vercel/next.js vs remix-run/remix for a SaaS frontend.",
+      "Summarize https://modelcontextprotocol.io/introduction for an MCP tool author."
+    ],
     "github": [
       "What are the main features?",
       "What are the biggest risks right now?",
@@ -41,36 +46,44 @@
     ]
   },
   "sessionNotes": {
+    "auto": "Autonomous mode. Call brief_plan on the user goal, invent source/mode/targets, execute without waiting for the panel.",
+    "auto_hint": "Optional panel hints may be present; prefer extracting from the goal.",
     "github_ready": "Use brief_orchestrate with repo={{repo}} and mode={{mode}}, then brief_eval.",
-    "github_missing": "Ask user for owner/name or switch source.",
+    "github_missing": "Ask user for owner/name or switch to Auto and put the repo in the goal.",
     "url_ready": "Use brief_orchestrate with url={{url}}{{repo_suffix}}, mode={{mode}}, then brief_eval.",
-    "url_missing": "Ask user for a public https URL.",
+    "url_missing": "Ask user for a public https URL or switch to Auto.",
     "compare_ready": "Use brief_orchestrate mode=compare repo={{repo}} repo_b={{repo_b}}, then brief_eval.",
-    "compare_missing": "Need two owner/name values for compare.",
+    "compare_missing": "Need two owner/name values for compare, or use Auto with both in the goal.",
     "corpus": "Use brief_corpus for the bundled local sample, then brief_eval."
   },
   "demos": [
     {
-      "label": "Demo · React risks",
+      "label": "Auto · React risks",
+      "source": "auto",
+      "mode": "general",
+      "goal": "Brief facebook/react risks for an eng manager. Invent the plan and run it.",
+      "question": "Brief facebook/react risks for an eng manager. Invent the plan and run it."
+    },
+    {
+      "label": "Auto · Next vs Remix",
+      "source": "auto",
+      "mode": "general",
+      "goal": "Compare vercel/next.js vs remix-run/remix for a production SaaS frontend. Cite README facts.",
+      "question": "Compare vercel/next.js vs remix-run/remix for a production SaaS frontend. Cite README facts."
+    },
+    {
+      "label": "Auto · MCP docs",
+      "source": "auto",
+      "mode": "general",
+      "goal": "Summarize https://modelcontextprotocol.io/introduction for an engineer building an MCP tool server.",
+      "question": "Summarize https://modelcontextprotocol.io/introduction for an engineer building an MCP tool server."
+    },
+    {
+      "label": "Guided · React risks",
       "source": "github",
       "mode": "risks",
       "repo": "facebook/react",
       "question": "What are the biggest risks and open issues right now?"
-    },
-    {
-      "label": "Demo · Next vs Remix",
-      "source": "compare",
-      "mode": "general",
-      "repo": "vercel/next.js",
-      "repoB": "remix-run/remix",
-      "question": "Compare these for a production SaaS frontend. Cite README facts."
-    },
-    {
-      "label": "Demo · MCP docs",
-      "source": "url",
-      "mode": "docs",
-      "url": "https://modelcontextprotocol.io/introduction",
-      "question": "Summarize this for an engineer building an MCP tool server."
     }
   ]
 }

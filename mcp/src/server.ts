@@ -7,20 +7,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { z } from "zod";
+import {
+  buildAutonomousPlan,
+  classifyBriefMode,
+  normalizeGithubRepo,
+  planForMode,
+  type BriefMode,
+} from "./plan";
 
 const PORT = Number(process.env.PORT || process.env.MCP_PORT || 3108);
 const HOST = process.env.HOST || "0.0.0.0";
-const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-
-function normalizeGithubRepo(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const trimmed = value
-    .trim()
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/\.git$/, "")
-    .replace(/\/$/, "");
-  return REPO_RE.test(trimmed) ? trimmed : undefined;
-}
 
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -360,43 +356,6 @@ async function fetchRepoOverview(repo: string): Promise<string> {
   );
 }
 
-type BriefMode = "overview" | "risks" | "architecture" | "activity" | "code" | "docs" | "compare" | "general";
-
-function classifyBriefMode(question: string): BriefMode {
-  const q = question.toLowerCase();
-  if (/\b(compar|vs\.?|versus|diff(erence)? between)\b/.test(q)) return "compare";
-  if (/\b(risk|security|vulnerab|cve|threat|incident)\b/.test(q)) return "risks";
-  if (/\b(architect|design|structure|module|component|how is it (built|organized))\b/.test(q)) {
-    return "architecture";
-  }
-  if (/\b(issue|pr|pull request|landed|merged|changelog|release|activity)\b/.test(q)) return "activity";
-  if (/\b(how does|where is|implement|code|source|function|api|endpoint)\b/.test(q)) return "code";
-  if (/\b(doc|docs|documentation|guide|tutorial|readme|corpus)\b/.test(q)) return "docs";
-  if (/\b(feature|overview|what is|what does|getting started|about)\b/.test(q)) return "overview";
-  return "general";
-}
-
-function planForMode(mode: BriefMode, hasRepo: boolean, hasUrl: boolean): string[] {
-  const steps: string[] = [`plan:${mode}`];
-  if (mode === "compare") {
-    steps.push("gather:meta+readme for each repo", "synthesize:side-by-side", "eval:citations");
-    return steps;
-  }
-  if (hasUrl) steps.push("gather:public_url");
-  if (hasRepo) {
-    if (mode === "overview") steps.push("gather:overview", "optional:root");
-    else if (mode === "activity" || mode === "risks") steps.push("gather:issues+releases", "optional:workspace");
-    else if (mode === "architecture") steps.push("gather:overview+root", "optional:code");
-    else if (mode === "code") steps.push("gather:ask(code)", "optional:file");
-    else if (mode === "docs") steps.push(hasUrl ? "gather:url" : "gather:overview+corpus");
-    else steps.push("gather:ask(mixed)");
-  } else if (!hasUrl) {
-    steps.push("gather:corpus_or_ask_for_repo_or_url");
-  }
-  steps.push("draft:answer_from_evidence", "eval:rubric");
-  return steps;
-}
-
 async function fetchPublicUrl(url: string): Promise<{ url: string; text: string; note?: string }> {
   let parsed: URL;
   try {
@@ -543,7 +502,7 @@ async function runOrchestrate(args: {
 function createBriefMcpServer(): McpServer {
   const server = new McpServer({
     name: "brief-desk-mcp",
-    version: "0.4.0",
+    version: "0.5.0",
   });
 
   server.tool(
@@ -712,6 +671,17 @@ function createBriefMcpServer(): McpServer {
   );
 
   server.tool(
+    "brief_plan",
+    "Autonomous planner: from a free-form goal, invent source/mode/repos/URL, subgoals, tool steps, and success criteria. Call this first in auto mode before brief_orchestrate.",
+    {
+      goal: z.string().describe("Free-form user goal (may include owner/name or https URLs)"),
+    },
+    async ({ goal }) => ({
+      content: [{ type: "text", text: JSON.stringify(buildAutonomousPlan(goal), null, 2) }],
+    }),
+  );
+
+  server.tool(
     "brief_orchestrate",
     "Multi-source orchestrator (free): plan → gather → guidance. Modes cover GitHub repos, public docs URLs, local corpus hints, risks/architecture/activity/code, and two-repo compare. Prefer this for non-trivial questions.",
     {
@@ -784,12 +754,13 @@ function createBriefMcpServer(): McpServer {
               ui: "CopilotKit React chat",
               protocol: "AG-UI (agent ↔ UI stream via CopilotRuntime)",
               tools: "MCP Streamable HTTP on this server",
-              loop: "brief_orchestrate (plan→gather) → draft → brief_eval → revise",
+              loop: "brief_plan (auto) → brief_orchestrate → draft → brief_eval → revise",
               backends: [
                 "GitHub (overview/ask/file/workspace)",
                 "public URL fetch",
                 "local corpus-brief",
                 "free heuristic eval rubric",
+                "autonomous goal planner",
               ],
             },
             null,
@@ -820,8 +791,9 @@ app.get("/health", (_req, res) => {
     ok: true,
     mcp: "/mcp",
     service: "brief-desk-mcp",
-    version: "0.4.0",
+    version: "0.5.0",
     tools: [
+      "brief_plan",
       "brief_orchestrate",
       "brief_eval",
       "brief_fetch_url",

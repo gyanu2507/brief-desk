@@ -15,7 +15,7 @@ export async function GET() {
   }
 }
 
-/** Render start-brief.md with session fields (keeps routing text in prompt files). */
+/** Render start-brief.md or auto-brief.md from prompt files. */
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
@@ -25,10 +25,12 @@ export async function POST(req: Request) {
       repoB?: string | null;
       url?: string | null;
       question?: string;
+      goal?: string;
     };
-    if (!body.source || !body.question?.trim()) {
+    const text = (body.goal || body.question || "").trim();
+    if (!body.source || !text) {
       return NextResponse.json(
-        { error: "source and question are required" },
+        { error: "source and question/goal are required" },
         { status: 400 },
       );
     }
@@ -38,7 +40,8 @@ export async function POST(req: Request) {
       repo: body.repo,
       repoB: body.repoB,
       url: body.url,
-      question: body.question.trim(),
+      question: text,
+      goal: body.goal || text,
     });
     return NextResponse.json({ content });
   } catch (e) {

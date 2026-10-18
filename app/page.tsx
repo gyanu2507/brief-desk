@@ -10,7 +10,7 @@ import { renderTemplate } from "../lib/template";
 const STORE_KEY = "brief-desk-v2";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
-type SourceKind = "github" | "url" | "compare" | "corpus";
+type SourceKind = "auto" | "github" | "url" | "compare" | "corpus";
 type BriefMode = "overview" | "risks" | "architecture" | "activity" | "code" | "docs" | "general";
 
 type PromptUi = {
@@ -26,6 +26,7 @@ type PromptUi = {
     repo?: string;
     repoB?: string;
     url?: string;
+    goal?: string;
     question: string;
   }[];
 };
@@ -39,6 +40,7 @@ type SavedBrief = {
   repo?: string;
   repoB?: string;
   url?: string;
+  goal?: string;
 };
 
 function normalizeRepo(value: string): string | null {
@@ -69,6 +71,7 @@ function sessionNote(
   },
 ): string {
   const notes = ui.sessionNotes;
+  if (args.source === "auto") return notes.auto;
   if (args.source === "github") {
     return args.repo
       ? renderTemplate(notes.github_ready, { repo: args.repo, mode: args.mode })
@@ -107,11 +110,14 @@ const fieldStyle: CSSProperties = {
 
 export default function Page() {
   const { sendMessage, isLoading } = useCopilotChatInternal();
-  const [source, setSource] = useState<SourceKind>("github");
+  const [source, setSource] = useState<SourceKind>("auto");
   const [mode, setMode] = useState<BriefMode>("overview");
   const [repoInput, setRepoInput] = useState("");
   const [repoBInput, setRepoBInput] = useState("");
   const [urlInput, setUrlInput] = useState("");
+  const [goalInput, setGoalInput] = useState(
+    "Brief facebook/react risks for an eng manager. Invent the plan and run it.",
+  );
   const [saved, setSaved] = useState<SavedBrief[]>([]);
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
   const [mcpVersion, setMcpVersion] = useState<string>("");
@@ -122,6 +128,7 @@ export default function Page() {
   const repo = normalizeRepo(repoInput);
   const repoB = normalizeRepo(repoBInput);
   const url = normalizeUrl(urlInput);
+  const goal = goalInput.trim();
 
   useEffect(() => {
     try {
@@ -137,6 +144,7 @@ export default function Page() {
         repo?: string;
         repoB?: string;
         url?: string;
+        goal?: string;
         saved?: SavedBrief[];
       };
       if (parsed.source) setSource(parsed.source);
@@ -144,6 +152,7 @@ export default function Page() {
       if (parsed.repo) setRepoInput(parsed.repo);
       if (parsed.repoB) setRepoBInput(parsed.repoB);
       if (parsed.url) setUrlInput(parsed.url);
+      if (parsed.goal) setGoalInput(parsed.goal);
       if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, 8));
     } catch {
       // ignore
@@ -160,13 +169,14 @@ export default function Page() {
           repo: repoInput,
           repoB: repoBInput,
           url: urlInput,
+          goal: goalInput,
           saved,
         }),
       );
     } catch {
       // ignore
     }
-  }, [source, mode, repoInput, repoBInput, urlInput, saved]);
+  }, [source, mode, repoInput, repoBInput, urlInput, goalInput, saved]);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,28 +225,30 @@ export default function Page() {
   const contextValue = useMemo(() => {
     const note = promptUi
       ? sessionNote(promptUi, { source, mode, repo, repoB, url })
-      : "Prefer brief_orchestrate then brief_eval.";
+      : "In auto mode call brief_plan first, then execute.";
     return {
-      loop: "orchestrate→draft→eval",
+      loop: source === "auto" ? "plan→orchestrate→draft→eval" : "orchestrate→draft→eval",
       brief_mode: source === "compare" ? "compare" : mode,
       source_kind: source,
       route: source,
       prompt_routes: promptRoutes,
-      repo,
-      repo_b: source === "compare" ? repoB : null,
-      url: source === "url" ? url : null,
+      goal: source === "auto" ? goal : null,
+      repo: source === "auto" || source === "github" || source === "url" || source === "compare" ? repo : null,
+      repo_b: source === "compare" || source === "auto" ? repoB : null,
+      url: source === "url" || source === "auto" ? url : null,
       note,
     };
-  }, [promptUi, promptRoutes, source, mode, repo, repoB, url]);
+  }, [promptUi, promptRoutes, source, mode, repo, repoB, url, goal]);
 
   useCopilotReadable({
     description:
       promptUi?.readableDescription ||
-      "Active brief-desk session. Prefer brief_orchestrate then brief_eval. Do not invent tool names.",
+      "Active brief-desk session. In auto mode call brief_plan first. Do not invent tool names.",
     value: contextValue,
   });
 
   const ready =
+    (source === "auto" && goal.length >= 8) ||
     (source === "github" && Boolean(repo)) ||
     (source === "url" && Boolean(url)) ||
     (source === "compare" && Boolean(repo) && Boolean(repoB)) ||
@@ -251,6 +263,7 @@ export default function Page() {
         repo: string | null;
         repoB: string | null;
         url: string | null;
+        goal: string | null;
       }>,
     ) => {
       if (isLoading) return;
@@ -259,14 +272,16 @@ export default function Page() {
       const r = override?.repo !== undefined ? override.repo : repo;
       const rB = override?.repoB !== undefined ? override.repoB : repoB;
       const u = override?.url !== undefined ? override.url : url;
+      const g = (override?.goal !== undefined ? override.goal : question || goal)?.trim() || "";
       const sessionReady =
+        (s === "auto" && g.length >= 8) ||
         (s === "github" && Boolean(r)) ||
         (s === "url" && Boolean(u)) ||
         (s === "compare" && Boolean(r) && Boolean(rB)) ||
         s === "corpus";
       if (!sessionReady) return;
 
-      setBusyNote("Running orchestrate → eval…");
+      setBusyNote(s === "auto" ? "Planning → orchestrate → eval…" : "Running orchestrate → eval…");
       try {
         const res = await fetch("/api/prompts", {
           method: "POST",
@@ -277,7 +292,8 @@ export default function Page() {
             repo: r,
             repoB: rB,
             url: u,
-            question,
+            question: s === "auto" ? g : question,
+            goal: s === "auto" ? g : undefined,
           }),
         });
         const body = (await res.json()) as { content?: string; error?: string };
@@ -293,19 +309,21 @@ export default function Page() {
         setBusyNote(null);
       }
     },
-    [isLoading, sendMessage, source, mode, repo, repoB, url],
+    [isLoading, sendMessage, source, mode, repo, repoB, url, goal],
   );
 
   const pinSession = () => {
     if (!ready) return;
     const label =
-      source === "github"
-        ? repo || "github"
-        : source === "url"
-          ? url || "url"
-          : source === "compare"
-            ? `${repo} vs ${repoB}`
-            : "corpus sample";
+      source === "auto"
+        ? goal.slice(0, 48) || "auto goal"
+        : source === "github"
+          ? repo || "github"
+          : source === "url"
+            ? url || "url"
+            : source === "compare"
+              ? `${repo} vs ${repoB}`
+              : "corpus sample";
     setSaved((prev) =>
       [
         {
@@ -317,6 +335,7 @@ export default function Page() {
           repo: repo || undefined,
           repoB: repoB || undefined,
           url: url || undefined,
+          goal: source === "auto" ? goal : undefined,
         },
         ...prev,
       ].slice(0, 8),
@@ -329,6 +348,9 @@ export default function Page() {
     setRepoInput(demo.repo || "");
     setRepoBInput(demo.repoB || "");
     setUrlInput(demo.url || "");
+    if (demo.source === "auto") {
+      setGoalInput(demo.goal || demo.question);
+    }
   };
 
   const suggest = promptUi?.suggest[source] ?? [];
@@ -337,14 +359,18 @@ export default function Page() {
   const defaultQ = promptUi?.defaultQuestions;
 
   const chatHint = !ready
-    ? "Fill the left panel, click Start brief, or pick a demo. Loop: orchestrate → eval (from prompts/)."
-    : source === "compare"
-      ? `Ready to compare ${repo} vs ${repoB}. Use Start brief or ask in chat.`
-      : source === "url"
-        ? `Docs URL ready. Start brief or ask what to extract.`
-        : source === "corpus"
-          ? "Corpus sample ready. Start brief or ask about the bundled docs."
-          : `Repo ${repo} · ${mode}. Start brief or type a follow-up.`;
+    ? source === "auto"
+      ? "Write a goal (include owner/name or a docs URL). Auto invents the plan and runs it."
+      : "Fill the left panel, click Start brief, or pick a demo."
+    : source === "auto"
+      ? "Auto mode ready. Start brief runs brief_plan → orchestrate → eval."
+      : source === "compare"
+        ? `Ready to compare ${repo} vs ${repoB}. Use Start brief or ask in chat.`
+        : source === "url"
+          ? `Docs URL ready. Start brief or ask what to extract.`
+          : source === "corpus"
+            ? "Corpus sample ready. Start brief or ask about the bundled docs."
+            : `Repo ${repo} · ${mode}. Start brief or type a follow-up.`;
 
   return (
     <TranscriptProvider>
@@ -374,8 +400,8 @@ export default function Page() {
             Multi-source briefing app
           </h1>
           <p style={{ margin: "0 0 14px", color: "var(--muted)", fontSize: 13, lineHeight: 1.45 }}>
-            Routing and the orchestrate → eval loop live in <code>prompts/</code>. Edit those files
-            to change agent behavior.
+            Auto mode invents the plan (source, mode, tools) from a goal. Routing lives in{" "}
+            <code>prompts/</code>.
           </p>
 
           <div
@@ -419,12 +445,13 @@ export default function Page() {
                 disabled={isLoading || !promptUi}
                 onClick={() => {
                   loadDemo(d);
-                  void runBrief(d.question, {
+                  void runBrief(d.goal || d.question, {
                     source: d.source,
                     mode: d.mode,
                     repo: d.repo || null,
                     repoB: d.repoB || null,
                     url: d.url || null,
+                    goal: d.goal || d.question,
                   });
                 }}
                 style={{
@@ -442,6 +469,7 @@ export default function Page() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
             {(
               [
+                ["auto", "Auto"],
                 ["github", "GitHub"],
                 ["url", "Docs URL"],
                 ["compare", "Compare"],
@@ -457,6 +485,7 @@ export default function Page() {
                   borderColor: source === id ? "var(--accent)" : "var(--line)",
                   background: source === id ? "rgba(37,99,235,0.08)" : "#fff",
                   color: source === id ? "var(--accent)" : "var(--ink)",
+                  gridColumn: id === "auto" ? "1 / -1" : undefined,
                 }}
               >
                 {label}
@@ -464,7 +493,23 @@ export default function Page() {
             ))}
           </div>
 
-          {source !== "compare" && source !== "corpus" ? (
+          {source === "auto" ? (
+            <>
+              <p style={labelStyle}>GOAL</p>
+              <textarea
+                style={{ ...fieldStyle, minHeight: 96, resize: "vertical", lineHeight: 1.4 }}
+                value={goalInput}
+                onChange={(e) => setGoalInput(e.target.value)}
+                placeholder="Include owner/name or https://… The agent invents the rest."
+              />
+              <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--muted)", lineHeight: 1.4 }}>
+                Optional hints below are unused unless you fill them. Prefer putting targets in the
+                goal.
+              </p>
+            </>
+          ) : null}
+
+          {source !== "compare" && source !== "corpus" && source !== "auto" ? (
             <>
               <p style={labelStyle}>BRIEF TYPE</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
@@ -488,9 +533,11 @@ export default function Page() {
             </>
           ) : null}
 
-          {source === "github" || source === "url" || source === "compare" ? (
+          {source === "github" || source === "url" || source === "compare" || source === "auto" ? (
             <>
-              <p style={labelStyle}>{source === "compare" ? "REPO A" : "GITHUB REPO"}</p>
+              <p style={{ ...labelStyle, marginTop: source === "auto" ? 12 : 0 }}>
+                {source === "compare" ? "REPO A" : source === "auto" ? "HINT REPO (optional)" : "GITHUB REPO"}
+              </p>
               <input
                 style={fieldStyle}
                 value={repoInput}
@@ -501,9 +548,11 @@ export default function Page() {
             </>
           ) : null}
 
-          {source === "compare" ? (
+          {source === "compare" || source === "auto" ? (
             <>
-              <p style={{ ...labelStyle, marginTop: 12 }}>REPO B</p>
+              <p style={{ ...labelStyle, marginTop: 12 }}>
+                {source === "auto" ? "HINT REPO B (optional)" : "REPO B"}
+              </p>
               <input
                 style={fieldStyle}
                 value={repoBInput}
@@ -514,9 +563,11 @@ export default function Page() {
             </>
           ) : null}
 
-          {source === "url" ? (
+          {source === "url" || source === "auto" ? (
             <>
-              <p style={{ ...labelStyle, marginTop: 12 }}>PUBLIC DOCS URL</p>
+              <p style={{ ...labelStyle, marginTop: 12 }}>
+                {source === "auto" ? "HINT URL (optional)" : "PUBLIC DOCS URL"}
+              </p>
               <input
                 style={fieldStyle}
                 value={urlInput}
@@ -537,13 +588,16 @@ export default function Page() {
             type="button"
             onClick={() =>
               void runBrief(
-                source === "compare"
-                  ? suggest[0] || "Compare these repositories."
-                  : source === "corpus"
-                    ? suggest[0] || "Summarize the sample docs."
-                    : source === "url"
-                      ? suggest[0] || "Summarize this document for an engineer."
-                      : defaultQ?.[mode] || "Give a concise engineering brief with citations.",
+                source === "auto"
+                  ? goal
+                  : source === "compare"
+                    ? suggest[0] || "Compare these repositories."
+                    : source === "corpus"
+                      ? suggest[0] || "Summarize the sample docs."
+                      : source === "url"
+                        ? suggest[0] || "Summarize this document for an engineer."
+                        : defaultQ?.[mode] || "Give a concise engineering brief with citations.",
+                source === "auto" ? { goal } : undefined,
               )
             }
             disabled={!ready || isLoading || mcpOk === false || !promptUi}
@@ -562,7 +616,7 @@ export default function Page() {
                 !ready || isLoading || mcpOk === false || !promptUi ? "not-allowed" : "pointer",
             }}
           >
-            {isLoading || busyNote ? "Running…" : "Start brief"}
+            {isLoading || busyNote ? "Running…" : source === "auto" ? "Run agent" : "Start brief"}
           </button>
 
           <button
@@ -590,12 +644,22 @@ export default function Page() {
               <button
                 key={s}
                 type="button"
-                disabled={!ready || isLoading || !promptUi}
-                onClick={() => void runBrief(s)}
+                disabled={isLoading || !promptUi || (source !== "auto" && !ready)}
+                onClick={() => {
+                  if (source === "auto") {
+                    setGoalInput(s);
+                    void runBrief(s, { source: "auto", goal: s });
+                    return;
+                  }
+                  void runBrief(s);
+                }}
                 style={{
                   ...chipStyle,
                   textAlign: "left",
-                  color: !ready || isLoading || !promptUi ? "#94a3b8" : "var(--ink)",
+                  color:
+                    isLoading || !promptUi || (source !== "auto" && !ready)
+                      ? "#94a3b8"
+                      : "var(--ink)",
                 }}
               >
                 {s}
@@ -617,6 +681,7 @@ export default function Page() {
                         setRepoInput(s.repo || (s.source === "github" ? s.label : ""));
                         setRepoBInput(s.repoB || "");
                         setUrlInput(s.url || (s.source === "url" ? s.label : ""));
+                        if (s.goal) setGoalInput(s.goal);
                       }}
                       style={{
                         width: "100%",

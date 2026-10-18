@@ -17,16 +17,19 @@ test("renderTemplate fills vars and drops incomplete lines", () => {
 
 test("agent prompt includes router and route keys", () => {
   const prompt = loadAgentSystemPrompt();
+  assert.match(prompt, /brief_plan/);
   assert.match(prompt, /brief_orchestrate/);
   assert.match(prompt, /Route selection/);
+  assert.match(prompt, /Route: auto/);
   assert.match(prompt, /Route: github/);
   assert.match(prompt, /Route: compare/);
   assert.match(prompt, /Route: followup/);
 });
 
-test("ui.json has demos and suggests", () => {
+test("ui.json has auto demos and suggests", () => {
   const ui = loadUiConfig();
-  assert.ok(ui.demos.length >= 3);
+  assert.ok(ui.demos.some((d) => d.source === "auto"));
+  assert.ok(ui.suggest.auto.length >= 1);
   assert.ok(ui.suggest.github.length >= 1);
 });
 
@@ -42,4 +45,16 @@ test("start-brief template renders session fields", () => {
   assert.match(content, /repo=facebook\/react/);
   assert.match(content, /Question: What are the risks\?/);
   assert.doesNotMatch(content, /repo_b=/);
+});
+
+test("auto-brief template renders free-form goal", () => {
+  const content = renderStartBrief({
+    source: "auto",
+    mode: "general",
+    question: "Brief facebook/react risks",
+    goal: "Brief facebook/react risks",
+  });
+  assert.match(content, /source=auto/);
+  assert.match(content, /Goal: Brief facebook\/react risks/);
+  assert.match(content, /brief_plan/);
 });

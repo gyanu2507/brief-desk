@@ -11,7 +11,8 @@ Next.js CopilotRuntime + BuiltInAgent
     │  MCP Streamable HTTP
     ▼
 brief-desk MCP
-    ├── brief_orchestrate  → plan + gather (repo / URL / compare / modes)
+    ├── brief_plan         → invent source/mode/targets/subgoals from a goal
+    ├── brief_orchestrate  → gather (repo / URL / compare / modes)
     ├── brief_eval         → free heuristic rubric
     ├── brief_fetch_url    → public docs pages
     ├── GitHub tools       → overview / ask / file / workspace-brief
@@ -42,39 +43,43 @@ npm run dev
 
 ### App sources (left panel)
 
-| Source | What you set | Example ask in chat |
+| Source | What you set | What the agent does |
 |---|---|---|
-| GitHub | `owner/name` + brief type | features / risks / architecture / code |
-| Docs URL | `https://…` (+ optional repo) | summarize / extract APIs |
-| Compare | Repo A + Repo B | which to pick for a SaaS app |
-| Corpus | none | questions about the bundled sample docs |
+| **Auto** (default) | a free-form goal with `owner/name` or `https://…` | `brief_plan` invents source/mode/subgoals, then executes |
+| GitHub | `owner/name` + brief type | guided orchestrate → eval |
+| Docs URL | `https://…` (+ optional repo) | fetch + brief |
+| Compare | Repo A + Repo B | side-by-side |
+| Corpus | none | bundled sample docs |
 
 Also: MCP health indicator, saved session shortcuts, agent log.
 
-Default loop: **`brief_orchestrate`** → draft → **`brief_eval`**. Revise if `pass=false`.
+Autonomous loop: **`brief_plan`** → **`brief_orchestrate`** → draft → **`brief_eval`**. Revise if `pass=false`.
 
 ### Prompt-file routing
 
-Agent routing, the orchestrate → eval loop, Start brief text, demos, and suggest chips
+Agent routing, the plan → orchestrate → eval loop, Start brief / Auto text, demos, and suggest chips
 all come from `prompts/` (not hardcoded in the agent).
 
 ```
 prompts/
-  system.md                 # agent identity + default loop
+  system.md                 # agent identity + autonomous loop
   router.md                 # how to pick a route from session fields
   routes/
-    github.md | url.md | compare.md | corpus.md | followup.md
+    auto.md | github.md | url.md | compare.md | corpus.md | followup.md
   templates/
-    start-brief.md          # one-click Start brief user message
+    auto-brief.md           # Run agent (goal-only)
+    start-brief.md          # guided Start brief
   ui.json                   # demos, suggests, modes, session notes
 ```
 
 - BuiltInAgent loads `system.md` + `router.md` + every `routes/*.md` at boot.
 - UI loads demos/suggests via `GET /api/prompts`.
-- Start brief renders `templates/start-brief.md` via `POST /api/prompts`.
+- Auto / Start brief renders templates via `POST /api/prompts`.
 
 Edit a route file and redeploy the Next app to change behavior. No TypeScript change required
 for copy or routing instructions.
+
+**Render:** redeploy the MCP service after pull so `brief_plan` (v0.5.0) is live.
 
 `GITHUB_TOKEN` on the MCP host unlocks code search and higher GitHub rate limits.
 

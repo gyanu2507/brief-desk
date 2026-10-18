@@ -6,7 +6,7 @@ export { renderTemplate } from "./template";
 
 const PROMPTS_ROOT = path.join(process.cwd(), "prompts");
 
-export type SourceKind = "github" | "url" | "compare" | "corpus";
+export type SourceKind = "auto" | "github" | "url" | "compare" | "corpus";
 export type BriefMode =
   | "overview"
   | "risks"
@@ -29,6 +29,7 @@ export type PromptUi = {
     repo?: string;
     repoB?: string;
     url?: string;
+    goal?: string;
     question: string;
   }[];
 };
@@ -57,6 +58,10 @@ export function loadStartBriefTemplate(): string {
   return readPrompt("templates/start-brief.md");
 }
 
+export function loadAutoBriefTemplate(): string {
+  return readPrompt("templates/auto-brief.md");
+}
+
 export function renderStartBrief(args: {
   source: SourceKind;
   mode: BriefMode | "compare";
@@ -64,7 +69,19 @@ export function renderStartBrief(args: {
   repoB?: string | null;
   url?: string | null;
   question: string;
+  goal?: string | null;
 }): string {
+  if (args.source === "auto") {
+    const hintBits = [
+      args.repo ? `hint_repo=${args.repo}` : null,
+      args.repoB ? `hint_repo_b=${args.repoB}` : null,
+      args.url ? `hint_url=${args.url}` : null,
+    ].filter(Boolean);
+    return renderTemplate(loadAutoBriefTemplate(), {
+      goal: (args.goal || args.question).trim(),
+      hints: hintBits.length ? hintBits.join("\n") : "",
+    });
+  }
   const mode = args.source === "compare" ? "compare" : args.mode;
   return renderTemplate(loadStartBriefTemplate(), {
     source: args.source,
@@ -85,6 +102,7 @@ export function renderSessionNote(args: {
 }): string {
   const ui = loadUiConfig();
   const notes = ui.sessionNotes;
+  if (args.source === "auto") return notes.auto;
   if (args.source === "github") {
     return args.repo
       ? renderTemplate(notes.github_ready, { repo: args.repo, mode: args.mode })
@@ -113,6 +131,7 @@ export function getPromptsBundle() {
   return {
     agentPromptPreview: loadAgentSystemPrompt().slice(0, 240) + "…",
     startBriefTemplate: loadStartBriefTemplate(),
+    autoBriefTemplate: loadAutoBriefTemplate(),
     ui: loadUiConfig(),
     routes: readdirSync(path.join(PROMPTS_ROOT, "routes"))
       .filter((f) => f.endsWith(".md"))

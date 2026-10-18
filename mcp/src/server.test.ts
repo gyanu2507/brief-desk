@@ -22,7 +22,8 @@ test("MCP health and root come up", async () => {
           const body = (await res.json()) as { ok: boolean; mcp: string; version?: string; tools?: string[] };
           assert.equal(body.ok, true);
           assert.equal(body.mcp, "/mcp");
-          assert.equal(body.version, "0.4.0");
+          assert.equal(body.version, "0.5.0");
+          assert.ok(body.tools?.includes("brief_plan"));
           assert.ok(body.tools?.includes("brief_orchestrate"));
           assert.ok(body.tools?.includes("brief_eval"));
           assert.ok(body.tools?.includes("brief_fetch_url"));

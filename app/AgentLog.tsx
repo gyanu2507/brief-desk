@@ -67,6 +67,8 @@ function summarizeArgs(raw: string | undefined): string {
 
 function routeForTool(name: string): string {
   switch (name) {
+    case "brief_plan":
+      return "MCP → autonomous planner (invent source/mode/steps)";
     case "brief_orchestrate":
       return "MCP → orchestrator (plan → gather → guidance)";
     case "brief_eval":
