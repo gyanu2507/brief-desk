@@ -1,4 +1,5 @@
 import { callMcpTool } from "./mcp-client";
+import { fetchGithubTrending, isMcpToolMissing } from "./github-trending";
 
 export type BriefRunInput = {
   source: "auto" | "github" | "url" | "compare" | "corpus" | "trending";
@@ -239,7 +240,26 @@ export async function runBriefPipeline(
         since: input.since || "weekly",
         max_results: 10,
       });
-      if (!trend.ok) {
+      if (trend.ok) {
+        evidence = trend.text;
+      } else if (isMcpToolMissing(trend.error) || trend.error) {
+        pushStep(steps, "github_trending_direct", onStep);
+        const scraped = await fetchGithubTrending({
+          language: input.language,
+          since: input.since || "weekly",
+          maxResults: 10,
+        });
+        if (!scraped.repos.length) {
+          return {
+            ok: false,
+            answer: "",
+            steps,
+            error: scraped.error || trend.error || "trending failed",
+            ms: Date.now() - t0,
+          };
+        }
+        evidence = JSON.stringify(scraped);
+      } else {
         return {
           ok: false,
           answer: "",
@@ -248,7 +268,6 @@ export async function runBriefPipeline(
           ms: Date.now() - t0,
         };
       }
-      evidence = trend.text;
     } else {
       pushStep(steps, "brief_orchestrate", onStep);
       const orch = await callMcpTool("brief_orchestrate", {
