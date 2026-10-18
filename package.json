@@ -15,13 +15,14 @@
     "test:mcp": "tsx --test mcp/src/plan.test.ts mcp/src/corpus.test.ts",
     "test:mcp:py": "cd backend && uv run pytest -q",
     "test:prompts": "tsx --test lib/prompts.test.ts",
-    "test": "npm run test:mcp:py && tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts mcp/src/corpus.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/brief-run.test.ts"
+    "test": "npm run test:mcp:py && tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts mcp/src/corpus.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/format-brief.test.ts lib/brief-run.test.ts"
   },
   "dependencies": {
     "@ag-ui/client": "1.0.2",
     "@copilotkit/react-core": "1.79.1",
     "@copilotkit/react-ui": "1.79.1",
     "@copilotkit/runtime": "1.79.1",
+    "@copilotkit/runtime-client-gql": "^1.79.1",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "hono": "^4.12.10",
     "next": "^15.5.28",

@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCopilotChatInternal, useCopilotReadable } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
+import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
 import { AgentLog } from "./AgentLog";
 import { BrandMark } from "./BrandMark";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
+import { formatBriefMarkdown } from "../lib/format-brief";
 import { renderTemplate } from "../lib/template";
 import type { BriefMode, PromptUi, SourceKind } from "../lib/types";
 
@@ -80,7 +82,7 @@ function sessionNote(
 }
 
 export default function Page() {
-  const { isLoading } = useCopilotChatInternal();
+  const { isLoading, appendMessage } = useCopilotChatInternal();
   const [source, setSource] = useState<SourceKind>("auto");
   const [mode, setMode] = useState<BriefMode>("overview");
   const [repoInput, setRepoInput] = useState("");
@@ -92,8 +94,6 @@ export default function Page() {
   const [mcpVersion, setMcpVersion] = useState<string>("");
   const [mcpTools, setMcpTools] = useState<string[]>([]);
   const [busyNote, setBusyNote] = useState<string | null>(null);
-  const [briefResult, setBriefResult] = useState<string | null>(null);
-  const [briefMeta, setBriefMeta] = useState<string | null>(null);
   const [promptUi, setPromptUi] = useState<PromptUi>(FALLBACK_UI);
   const [promptRoutes, setPromptRoutes] = useState<string[]>([
     "auto",
@@ -305,10 +305,10 @@ export default function Page() {
         s === "corpus";
       if (!sessionReady) return;
 
-      // Deterministic server pipeline (reliable). Chat remains for free-form follow-ups.
+      // Show the prompt in CopilotChat, then fill the reply via /api/brief-run
+      // (reliable). followUp:false so we do not also fire the free-form agent.
+      const userFacing = (s === "auto" ? g : question).trim();
       setPipelineBusy(true);
-      setBriefResult(null);
-      setBriefMeta(null);
       setBusyNote(
         s === "auto"
           ? hasBriefAuto
@@ -317,6 +317,10 @@ export default function Page() {
           : "orchestrate → draft → eval…",
       );
       try {
+        await appendMessage(new TextMessage({ role: Role.User, content: userFacing }), {
+          followUp: false,
+        });
+
         const res = await fetch("/api/brief-run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -341,14 +345,19 @@ export default function Page() {
         if (!res.ok || !body.ok || !body.answer) {
           throw new Error(body.error || "brief-run failed");
         }
-        setBriefResult(body.answer);
         const score =
           typeof body.eval?.scores?.overall === "number"
-            ? ` · eval ${body.eval.scores.overall}`
+            ? `eval ${body.eval.scores.overall}`
             : body.eval?.pass === true
-              ? " · eval pass"
-              : "";
-        setBriefMeta(`${(body.steps || []).join(" → ")}${score} · ${body.ms ?? "?"}ms`);
+              ? "eval pass"
+              : null;
+        const meta = [`${(body.steps || []).join(" → ")}`, score, `${body.ms ?? "?"}ms`]
+          .filter(Boolean)
+          .join(" · ");
+        const markdown = formatBriefMarkdown(body.answer, meta);
+        await appendMessage(new TextMessage({ role: Role.Assistant, content: markdown }), {
+          followUp: false,
+        });
         window.dispatchEvent(
           new CustomEvent("brief-desk-answer", {
             detail: { answer: body.answer, steps: body.steps, ms: body.ms },
@@ -356,6 +365,13 @@ export default function Page() {
         );
       } catch (e) {
         const message = e instanceof Error ? e.message : "brief-run failed";
+        await appendMessage(
+          new TextMessage({
+            role: Role.Assistant,
+            content: `**Could not finish the brief.**\n\n${message}`,
+          }),
+          { followUp: false },
+        ).catch(() => undefined);
         window.dispatchEvent(new CustomEvent("brief-desk-error", { detail: message }));
       } finally {
         setBusyNote(null);
@@ -374,6 +390,7 @@ export default function Page() {
       mcpOk,
       hasOrchestrate,
       hasBriefAuto,
+      appendMessage,
     ],
   );
 
@@ -742,54 +759,7 @@ export default function Page() {
             </div>
           ) : null}
 
-          {briefResult ? (
-            <div className="brief-result">
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  marginBottom: 8,
-                  fontSize: 11,
-                  color: "var(--muted)",
-                  letterSpacing: "0.04em",
-                }}
-              >
-                <span>BRIEF RESULT{briefMeta ? ` · ${briefMeta}` : ""}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBriefResult(null);
-                    setBriefMeta(null);
-                  }}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: "var(--muted)",
-                    cursor: "pointer",
-                    fontSize: 11,
-                    textDecoration: "underline",
-                  }}
-                >
-                  dismiss
-                </button>
-              </div>
-              <pre
-                style={{
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  fontFamily: "ui-sans-serif, system-ui, sans-serif",
-                  fontSize: 13,
-                  lineHeight: 1.45,
-                  color: "var(--ink)",
-                }}
-              >
-                {briefResult}
-              </pre>
-            </div>
-          ) : null}
-
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, minHeight: 0 }} className="desk-chat">
             <CopilotChat
               labels={{
                 title: "brief-desk",

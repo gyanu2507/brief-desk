@@ -232,15 +232,40 @@ code {
   background: #f8fafc;
 }
 
-.brief-result {
-  margin: 12px 12px 0;
-  padding: 14px 16px;
-  border-radius: 10px;
-  background: #fff;
-  border: 1px solid var(--line);
-  max-height: 42vh;
-  overflow: auto;
-  flex-shrink: 0;
+.desk-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.desk-chat .copilotKitMessages {
+  flex: 1;
+  min-height: 0;
+}
+
+.desk-chat .copilotKitAssistantMessage,
+.desk-chat .copilotKitMessage {
+  line-height: 1.5;
+}
+
+.desk-chat .copilotKitAssistantMessage p,
+.desk-chat .copilotKitAssistantMessage li {
+  font-size: 14px;
+}
+
+.desk-chat .copilotKitAssistantMessage h3 {
+  margin: 0.85em 0 0.35em;
+  font-size: 15px;
+}
+
+.desk-chat .copilotKitAssistantMessage ul,
+.desk-chat .copilotKitAssistantMessage ol {
+  margin: 0.4em 0 0.6em;
+  padding-left: 1.25em;
+}
+
+.desk-chat .copilotKitAssistantMessage code {
+  font-size: 0.9em;
 }
 
 .status-row {
