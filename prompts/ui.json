@@ -1,5 +1,5 @@
 {
-  "readableDescription": "Active brief-desk session. Prefer brief_auto (or brief_plan + brief_orchestrate). Never call brief_workspace. Draft then brief_eval. Follow prompts/router.md.",
+  "readableDescription": "Active brief-desk session. Prefer brief_auto (or brief_plan + brief_orchestrate). Draft then brief_eval. Follow prompts/router.md.",
   "modes": [
     { "id": "overview", "label": "Overview" },
     { "id": "risks", "label": "Risks" },
@@ -46,9 +46,8 @@
     ]
   },
   "sessionNotes": {
-    "auto": "Call brief_auto once (or brief_plan + brief_orchestrate). Never brief_workspace. Draft + brief_eval.",
-    "auto_hint": "Optional panel hints may be present; prefer extracting from the goal.",
-    "github_ready": "Use brief_orchestrate with repo={{repo}} and mode={{mode}}, then brief_eval. Never brief_workspace.",
+    "auto": "Call brief_auto once (or brief_plan + brief_orchestrate). Draft + brief_eval.",
+    "github_ready": "Use brief_orchestrate with repo={{repo}} and mode={{mode}}, then brief_eval.",
     "github_missing": "Ask user for owner/name or switch to Auto.",
     "url_ready": "Use brief_orchestrate with url={{url}}{{repo_suffix}}, mode={{mode}}, then brief_eval.",
     "url_missing": "Ask user for a public https URL or switch to Auto.",

@@ -5,7 +5,7 @@ import { Providers } from "./Providers";
 
 export const metadata: Metadata = {
   title: "brief-desk",
-  description: "CopilotKit + AG-UI desk for MCP-backed workspace and corpus briefings",
+  description: "One-repo CopilotKit + AG-UI briefing desk with MCP tools",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCopilotChatInternal, useCopilotReadable } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { AgentLog } from "./AgentLog";
@@ -9,7 +9,7 @@ import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { renderTemplate } from "../lib/template";
 import type { BriefMode, PromptUi, SourceKind } from "../lib/types";
 
-const STORE_KEY = "brief-desk-v3";
+const STORE_KEY = "brief-desk-v4";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const RUN_WATCHDOG_MS = 90_000;
 
@@ -77,18 +77,6 @@ function sessionNote(
   }
   return notes.corpus;
 }
-
-const fieldStyle: CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "10px 12px",
-  border: "1px solid var(--line)",
-  borderRadius: 8,
-  fontSize: 13,
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  color: "var(--ink)",
-  background: "#fff",
-};
 
 export default function Page() {
   const { isLoading } = useCopilotChatInternal();
@@ -209,7 +197,16 @@ export default function Page() {
           error?: string;
         };
         if (cancelled || !body.ui) return;
-        setPromptUi(body.ui);
+        const next = body.ui;
+        setPromptUi({
+          ...FALLBACK_UI,
+          ...next,
+          modes: next.modes?.length ? next.modes : FALLBACK_UI.modes,
+          defaultQuestions: { ...FALLBACK_UI.defaultQuestions, ...next.defaultQuestions },
+          suggest: { ...FALLBACK_UI.suggest, ...next.suggest },
+          sessionNotes: { ...FALLBACK_UI.sessionNotes, ...next.sessionNotes },
+          demos: next.demos?.length ? next.demos : FALLBACK_UI.demos,
+        });
         setPromptRoutes(Array.isArray(body.routes) ? body.routes : []);
       } catch {
         // Keep FALLBACK_UI
@@ -247,7 +244,6 @@ export default function Page() {
       prompt_routes: promptRoutes,
       mcp_tools: mcpTools,
       has_brief_auto: hasBriefAuto,
-      banned_tools: ["brief_workspace"],
       goal: source === "auto" ? goal : null,
       repo: source === "auto" || source === "github" || source === "url" || source === "compare" ? repo : null,
       repo_b: source === "compare" || source === "auto" ? repoB : null,
@@ -419,10 +415,13 @@ export default function Page() {
     }
   };
 
-  const suggest = promptUi.suggest[source] ?? [];
-  const modes = promptUi.modes ?? [];
-  const demos = promptUi.demos ?? [];
-  const defaultQ = promptUi.defaultQuestions;
+  const suggest =
+    promptUi.suggest[source]?.length > 0
+      ? promptUi.suggest[source]
+      : FALLBACK_UI.suggest[source] ?? [];
+  const modes = promptUi.modes?.length ? promptUi.modes : FALLBACK_UI.modes;
+  const demos = promptUi.demos?.length ? promptUi.demos : FALLBACK_UI.demos;
+  const defaultQ = { ...FALLBACK_UI.defaultQuestions, ...promptUi.defaultQuestions };
 
   const mcpLabel =
     mcpOk === null
@@ -453,72 +452,209 @@ export default function Page() {
               ? "Corpus sample ready."
               : `Repo ${repo} · ${mode} ready.`;
 
+  const startQuestion =
+    source === "auto"
+      ? goal
+      : source === "compare"
+        ? suggest[0] || "Compare these repositories."
+        : source === "corpus"
+          ? suggest[0] || "Summarize the sample docs."
+          : source === "url"
+            ? suggest[0] || "Summarize this document for an engineer."
+            : defaultQ?.[mode] || "Give a concise engineering brief with citations.";
+
   return (
     <TranscriptProvider>
-      <main
-        className="desk-shell"
-        style={{
-          minHeight: "100vh",
-          display: "grid",
-          gridTemplateColumns: "minmax(260px, 320px) minmax(0, 1fr) minmax(260px, 340px)",
-          gap: 0,
-        }}
-      >
-        <aside
-          className="desk-controls"
-          style={{
-            padding: "22px 18px",
-            borderRight: "1px solid var(--line)",
-            background: "var(--panel)",
-            overflow: "auto",
-            maxHeight: "100vh",
-          }}
-        >
+      <main className="desk-shell">
+        <aside className="desk-controls">
           <p style={{ margin: 0, fontSize: 11, letterSpacing: "0.08em", color: "var(--muted)" }}>
             BRIEF-DESK
           </p>
-          <h1 style={{ margin: "6px 0 8px", fontSize: 24, lineHeight: 1.15 }}>
-            Multi-source briefing app
+          <h1 style={{ margin: "6px 0 6px", fontSize: 22, lineHeight: 1.2 }}>
+            Multi-source briefing
           </h1>
-          <p style={{ margin: "0 0 14px", color: "var(--muted)", fontSize: 13, lineHeight: 1.45 }}>
-            Auto mode invents the plan (source, mode, tools) from a goal. Routing lives in{" "}
-            <code>prompts/</code>.
+          <p style={{ margin: "0 0 12px", color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>
+            One repo. GitHub, docs URLs, compare, or bundled corpus. Run agent drafts a brief with
+            citations.
           </p>
 
           <div
+            className="status-row"
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 14,
-              fontSize: 12,
               color: mcpOk === null ? "var(--muted)" : mcpReady ? "#15803d" : "#b91c1c",
             }}
           >
             <span
+              className="status-dot"
               style={{
-                width: 8,
-                height: 8,
-                borderRadius: 999,
                 background: mcpOk === null ? "#94a3b8" : mcpReady ? "#22c55e" : "#ef4444",
               }}
             />
             {mcpLabel}
           </div>
 
-          {promptRoutes.length ? (
-            <p style={{ margin: "0 0 12px", fontSize: 11, color: "var(--muted)" }}>
-              Routes: {promptRoutes.join(" · ")}
+          <p className="section-label">Source</p>
+          <div className="source-grid">
+            {(
+              [
+                ["auto", "Auto"],
+                ["github", "GitHub"],
+                ["url", "Docs"],
+                ["compare", "Compare"],
+                ["corpus", "Corpus"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`chip${source === id ? " active" : ""}${id === "auto" ? " span-all" : ""}`}
+                onClick={() => setSource(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {source === "auto" ? (
+            <>
+              <p className="section-label">Goal</p>
+              <textarea
+                className="field"
+                style={{ minHeight: 80, resize: "vertical", lineHeight: 1.4 }}
+                value={goalInput}
+                onChange={(e) => setGoalInput(e.target.value)}
+                placeholder="Include owner/name or https://…"
+              />
+            </>
+          ) : null}
+
+          {source !== "auto" && source !== "compare" && source !== "corpus" ? (
+            <>
+              <p className="section-label">Brief type</p>
+              <div className="mode-row">
+                {modes.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`chip${mode === m.id ? " active" : ""}`}
+                    onClick={() => setMode(m.id)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {source === "github" || source === "url" || source === "compare" ? (
+            <>
+              <p className="section-label">{source === "compare" ? "Repo A" : "GitHub repo"}</p>
+              <input
+                className="field"
+                value={repoInput}
+                onChange={(e) => setRepoInput(e.target.value)}
+                placeholder="owner/name"
+                spellCheck={false}
+              />
+            </>
+          ) : null}
+
+          {source === "compare" ? (
+            <>
+              <p className="section-label">Repo B</p>
+              <input
+                className="field"
+                value={repoBInput}
+                onChange={(e) => setRepoBInput(e.target.value)}
+                placeholder="owner/name"
+                spellCheck={false}
+              />
+            </>
+          ) : null}
+
+          {source === "url" ? (
+            <>
+              <p className="section-label">Docs URL</p>
+              <input
+                className="field"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                placeholder="https://…"
+                spellCheck={false}
+              />
+            </>
+          ) : null}
+
+          {source === "corpus" ? (
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--muted)", lineHeight: 1.4 }}>
+              Bundled sample docs in this repo (<code>mcp/corpus</code>).
             </p>
           ) : null}
 
-          <p style={labelStyle}>QUICK DEMOS</p>
-          <div style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+          <div className="query-panel">
+            <p className="section-label">Queries</p>
+            <div className="query-list">
+              {suggest.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>
+                  No queries for this source.
+                </p>
+              ) : (
+                suggest.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className="chip"
+                    disabled={!mcpReady || pipelineBusy || (source !== "auto" && !ready)}
+                    onClick={() => {
+                      if (source === "auto") {
+                        setGoalInput(s);
+                        void runBrief(s, { source: "auto", goal: s });
+                        return;
+                      }
+                      void runBrief(s);
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!canRun}
+            onClick={() =>
+              void runBrief(startQuestion, source === "auto" ? { goal } : undefined)
+            }
+          >
+            {pipelineBusy || busyNote
+              ? "Running…"
+              : source === "auto"
+                ? "Run agent"
+                : "Start brief"}
+          </button>
+
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={pinSession}
+            disabled={!ready}
+          >
+            Save session shortcut
+          </button>
+
+          <p className="section-label" style={{ marginTop: 18 }}>
+            Demos
+          </p>
+          <div className="demo-list">
             {demos.map((d) => (
               <button
                 key={d.label}
                 type="button"
-                disabled={!mcpReady || isLoading}
+                className="chip"
+                disabled={!mcpReady || pipelineBusy}
                 onClick={() => {
                   loadDemo(d);
                   void runBrief(d.goal || d.question, {
@@ -530,299 +666,61 @@ export default function Page() {
                     goal: d.goal || d.question,
                   });
                 }}
-                style={{
-                  ...chipStyle,
-                  textAlign: "left",
-                  background: "#f8fafc",
-                }}
               >
                 {d.label}
               </button>
             ))}
           </div>
 
-          <p style={labelStyle}>SOURCE</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
-            {(
-              [
-                ["auto", "Auto"],
-                ["github", "GitHub"],
-                ["url", "Docs URL"],
-                ["compare", "Compare"],
-                ["corpus", "Corpus"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setSource(id)}
-                style={{
-                  ...chipStyle,
-                  borderColor: source === id ? "var(--accent)" : "var(--line)",
-                  background: source === id ? "rgba(37,99,235,0.08)" : "#fff",
-                  color: source === id ? "var(--accent)" : "var(--ink)",
-                  gridColumn: id === "auto" ? "1 / -1" : undefined,
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {source === "auto" ? (
+          {saved.length ? (
             <>
-              <p style={labelStyle}>GOAL</p>
-              <textarea
-                style={{ ...fieldStyle, minHeight: 96, resize: "vertical", lineHeight: 1.4 }}
-                value={goalInput}
-                onChange={(e) => setGoalInput(e.target.value)}
-                placeholder="Include owner/name or https://… The agent invents the rest."
-              />
-              <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--muted)", lineHeight: 1.4 }}>
-                Optional hints below are unused unless you fill them. Prefer putting targets in the
-                goal.
-              </p>
-            </>
-          ) : null}
-
-          {source !== "compare" && source !== "corpus" && source !== "auto" ? (
-            <>
-              <p style={labelStyle}>BRIEF TYPE</p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
-                {modes.map((m) => (
+              <p className="section-label">Saved</p>
+              <div className="demo-list">
+                {saved.map((s) => (
                   <button
-                    key={m.id}
+                    key={s.id}
                     type="button"
-                    onClick={() => setMode(m.id)}
+                    className="chip"
                     style={{
-                      ...chipStyle,
-                      padding: "5px 8px",
-                      borderColor: mode === m.id ? "var(--accent)" : "var(--line)",
-                      background: mode === m.id ? "rgba(37,99,235,0.08)" : "#fff",
-                      color: mode === m.id ? "var(--accent)" : "var(--ink)",
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      fontSize: 11,
+                    }}
+                    onClick={() => {
+                      setSource(s.source);
+                      setMode(s.mode);
+                      setRepoInput(s.repo || (s.source === "github" ? s.label : ""));
+                      setRepoBInput(s.repoB || "");
+                      setUrlInput(s.url || (s.source === "url" ? s.label : ""));
+                      if (s.goal) setGoalInput(s.goal);
                     }}
                   >
-                    {m.label}
+                    {s.source} · {s.label}
                   </button>
                 ))}
               </div>
             </>
           ) : null}
-
-          {source === "github" || source === "url" || source === "compare" || source === "auto" ? (
-            <>
-              <p style={{ ...labelStyle, marginTop: source === "auto" ? 12 : 0 }}>
-                {source === "compare" ? "REPO A" : source === "auto" ? "HINT REPO (optional)" : "GITHUB REPO"}
-              </p>
-              <input
-                style={fieldStyle}
-                value={repoInput}
-                onChange={(e) => setRepoInput(e.target.value)}
-                placeholder="owner/name"
-                spellCheck={false}
-              />
-            </>
-          ) : null}
-
-          {source === "compare" || source === "auto" ? (
-            <>
-              <p style={{ ...labelStyle, marginTop: 12 }}>
-                {source === "auto" ? "HINT REPO B (optional)" : "REPO B"}
-              </p>
-              <input
-                style={fieldStyle}
-                value={repoBInput}
-                onChange={(e) => setRepoBInput(e.target.value)}
-                placeholder="owner/name"
-                spellCheck={false}
-              />
-            </>
-          ) : null}
-
-          {source === "url" || source === "auto" ? (
-            <>
-              <p style={{ ...labelStyle, marginTop: 12 }}>
-                {source === "auto" ? "HINT URL (optional)" : "PUBLIC DOCS URL"}
-              </p>
-              <input
-                style={fieldStyle}
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="https://…"
-                spellCheck={false}
-              />
-            </>
-          ) : null}
-
-          {source === "corpus" ? (
-            <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--muted)", lineHeight: 1.45 }}>
-              Bundled local markdown on the MCP host. No GitHub token needed.
-            </p>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={() =>
-              void runBrief(
-                source === "auto"
-                  ? goal
-                  : source === "compare"
-                    ? suggest[0] || "Compare these repositories."
-                    : source === "corpus"
-                      ? suggest[0] || "Summarize the sample docs."
-                      : source === "url"
-                        ? suggest[0] || "Summarize this document for an engineer."
-                        : defaultQ?.[mode] || "Give a concise engineering brief with citations.",
-                source === "auto" ? { goal } : undefined,
-              )
-            }
-            disabled={!canRun}
-            style={{
-              marginTop: 14,
-              width: "100%",
-              padding: "11px 12px",
-              borderRadius: 8,
-              border: "none",
-              background: !canRun ? "#cbd5e1" : "var(--accent)",
-              color: "#fff",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: !canRun ? "not-allowed" : "pointer",
-            }}
-          >
-            {pipelineBusy || busyNote
-              ? "Running…"
-              : source === "auto"
-                ? "Run agent"
-                : "Start brief"}
-          </button>
-
-          <button
-            type="button"
-            onClick={pinSession}
-            disabled={!ready}
-            style={{
-              marginTop: 8,
-              width: "100%",
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: "1px solid var(--line)",
-              background: "#fff",
-              color: ready ? "var(--ink)" : "#94a3b8",
-              fontSize: 13,
-              cursor: ready ? "pointer" : "not-allowed",
-            }}
-          >
-            Save session shortcut
-          </button>
-
-          <p style={{ ...labelStyle, marginTop: 18 }}>CLICK TO RUN</p>
-          <div style={{ display: "grid", gap: 6 }}>
-            {suggest.map((s) => (
-              <button
-                key={s}
-                type="button"
-                disabled={!mcpReady || isLoading || (source !== "auto" && !ready)}
-                onClick={() => {
-                  if (source === "auto") {
-                    setGoalInput(s);
-                    void runBrief(s, { source: "auto", goal: s });
-                    return;
-                  }
-                  void runBrief(s);
-                }}
-                style={{
-                  ...chipStyle,
-                  textAlign: "left",
-                  color:
-                    !mcpReady || isLoading || (source !== "auto" && !ready)
-                      ? "#94a3b8"
-                      : "var(--ink)",
-                }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-
-          {saved.length ? (
-            <>
-              <p style={{ ...labelStyle, marginTop: 18 }}>SAVED</p>
-              <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
-                {saved.map((s) => (
-                  <li key={s.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSource(s.source);
-                        setMode(s.mode);
-                        setRepoInput(s.repo || (s.source === "github" ? s.label : ""));
-                        setRepoBInput(s.repoB || "");
-                        setUrlInput(s.url || (s.source === "url" ? s.label : ""));
-                        if (s.goal) setGoalInput(s.goal);
-                      }}
-                      style={{
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "7px 8px",
-                        borderRadius: 8,
-                        border: "1px solid var(--line)",
-                        background: "#f8fafc",
-                        fontSize: 11,
-                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                        cursor: "pointer",
-                        color: "var(--ink)",
-                      }}
-                    >
-                      {s.source} · {s.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
         </aside>
 
-        <section
-          style={{
-            minHeight: "100vh",
-            background: "#eef2ff",
-            minWidth: 0,
-            position: "relative",
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
+        <section className="desk-main">
           {busyNote || pipelineBusy || isLoading ? (
             <div
               style={{
-                margin: "10px 12px 0",
+                margin: "12px 12px 0",
                 padding: "8px 12px",
                 borderRadius: 8,
                 background: "#0f172a",
                 color: "#e2e8f0",
                 fontSize: 12,
+                flexShrink: 0,
               }}
             >
-              {busyNote ||
-                (pipelineBusy
-                  ? "Server pipeline running…"
-                  : "Chat agent running… watch the log.")}
+              {busyNote || (pipelineBusy ? "Running brief pipeline…" : "Chat agent running…")}
             </div>
           ) : null}
+
           {briefResult ? (
-            <div
-              style={{
-                margin: "10px 12px 0",
-                padding: "12px 14px",
-                borderRadius: 10,
-                background: "#fff",
-                border: "1px solid var(--line)",
-                maxHeight: "42vh",
-                overflow: "auto",
-                zIndex: 4,
-              }}
-            >
+            <div className="brief-result">
               <div
                 style={{
                   display: "flex",
@@ -867,6 +765,7 @@ export default function Page() {
               </pre>
             </div>
           ) : null}
+
           <div style={{ flex: 1, minHeight: 0 }}>
             <CopilotChat
               labels={{
@@ -883,20 +782,3 @@ export default function Page() {
     </TranscriptProvider>
   );
 }
-
-const labelStyle: CSSProperties = {
-  display: "block",
-  fontSize: 11,
-  letterSpacing: "0.06em",
-  color: "var(--muted)",
-  marginBottom: 6,
-};
-
-const chipStyle: CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 8,
-  border: "1px solid var(--line)",
-  background: "#fff",
-  fontSize: 12,
-  cursor: "pointer",
-};

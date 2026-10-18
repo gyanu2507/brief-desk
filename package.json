@@ -2,7 +2,7 @@
   "name": "brief-desk",
   "version": "0.1.0",
   "private": true,
-  "description": "CopilotKit + AG-UI chat desk that drives workspace/corpus briefing tools over MCP",
+  "description": "One-repo CopilotKit + AG-UI briefing desk with MCP tools and bundled corpus",
   "scripts": {
     "dev": "concurrently -k -n ui,mcp -c blue,green \"npm run dev:ui\" \"npm run dev:mcp\"",
     "dev:ui": "next dev --turbopack -p 3000",
@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test:mcp": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts",
     "test:prompts": "tsx --test lib/prompts.test.ts",
-    "test": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/brief-run.test.ts"
+    "test": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts mcp/src/corpus.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/brief-run.test.ts"
   },
   "dependencies": {
     "@ag-ui/client": "1.0.2",

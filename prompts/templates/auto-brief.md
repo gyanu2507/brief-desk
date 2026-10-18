@@ -9,5 +9,5 @@ Tool sequence (strict):
 3) Draft from gather only.
 4) brief_eval. Revise if pass=false. Reply with the brief.
 
-Banned: brief_workspace, extra URL fetches, second gather. Do not wait for the left panel.
+Do not wait for the left panel.
 {{hints}}

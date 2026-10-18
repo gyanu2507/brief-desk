@@ -83,10 +83,8 @@ function routeForTool(name: string): string {
       return "MCP → GitHub README API";
     case "brief_repo_file":
       return "MCP → GitHub Contents API";
-    case "brief_workspace":
-      return "MCP → brief_workspace (banned / skipped)";
     case "brief_corpus":
-      return "MCP → corpus-brief (local docs)";
+      return "MCP → bundled mcp/corpus";
     case "stack_info":
       return "MCP → stack_info";
     default:
@@ -328,11 +326,8 @@ export function AgentLog() {
       style={{
         display: "flex",
         flexDirection: "column",
-        minHeight: "100vh",
-        maxHeight: "100vh",
-        borderLeft: "1px solid var(--line)",
-        background: "#0b1220",
-        color: "#e2e8f0",
+        minHeight: 0,
+        height: "100%",
         overflow: "hidden",
       }}
     >

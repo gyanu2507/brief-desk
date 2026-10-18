@@ -1,9 +1,9 @@
 import type { BriefMode, PromptUi, SourceKind } from "./types";
 
-/** Client-safe defaults so demos work even if /api/prompts is slow. */
+/** Client-safe defaults so demos/queries work even if /api/prompts is slow. */
 export const FALLBACK_UI: PromptUi = {
   readableDescription:
-    "Active brief-desk session. Prefer brief_auto (or brief_plan+brief_orchestrate). Never brief_workspace. Then draft + brief_eval.",
+    "Active brief-desk session. Prefer brief_auto (or brief_plan+brief_orchestrate), then draft + brief_eval.",
   modes: [
     { id: "overview", label: "Overview" },
     { id: "risks", label: "Risks" },
@@ -50,9 +50,8 @@ export const FALLBACK_UI: PromptUi = {
     ],
   },
   sessionNotes: {
-    auto: "Call brief_auto once (or brief_plan + brief_orchestrate). Never brief_workspace. Draft + brief_eval.",
-    github_ready:
-      "Use brief_orchestrate with repo={{repo}} and mode={{mode}}, then brief_eval. Never brief_workspace.",
+    auto: "Call brief_auto once (or brief_plan + brief_orchestrate). Draft + brief_eval.",
+    github_ready: "Use brief_orchestrate with repo={{repo}} and mode={{mode}}, then brief_eval.",
     github_missing: "Ask user for owner/name or switch to Auto.",
     url_ready: "Use brief_orchestrate with url={{url}}{{repo_suffix}}, mode={{mode}}, then brief_eval.",
     url_missing: "Ask user for a public https URL or switch to Auto.",

@@ -1,12 +1,12 @@
 /**
  * Streamable HTTP MCP server (stateless).
- * Tools call GitHub APIs and/or workspace-brief / corpus-brief CLIs.
+ * All tools live in this repo: GitHub APIs, public URL fetch, bundled corpus.
  */
-import { spawn } from "node:child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { z } from "zod";
+import { searchCorpus } from "./corpus";
 import {
   buildAutonomousPlan,
   classifyBriefMode,
@@ -32,39 +32,8 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, max)}\n\n…[truncated]`;
 }
 
-const CMD_TIMEOUT_MS = Number(process.env.BRIEF_CMD_TIMEOUT_MS || 8_000);
 const FETCH_TIMEOUT_MS = Number(process.env.BRIEF_FETCH_TIMEOUT_MS || 10_000);
-const MCP_VERSION = "0.5.2";
-
-function runCmd(command: string, args: string[], timeoutMs = CMD_TIMEOUT_MS): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let out = "";
-    let err = "";
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(`${command} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    child.stdout.on("data", (d) => {
-      out += d.toString();
-    });
-    child.stderr.on("data", (d) => {
-      err += d.toString();
-    });
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(out.trim() || "(empty)");
-      else reject(new Error(err.trim() || `${command} exited ${code}`));
-    });
-  });
-}
+const MCP_VERSION = "0.6.0";
 
 async function githubApi(path: string, accept?: string): Promise<Response> {
   const headers: Record<string, string> = {
@@ -512,12 +481,11 @@ async function runOrchestrate(args: {
       stages.gather = JSON.parse(await fetchRepoAsk(repo, args.question));
     }
     stages.guidance =
-      "Answer from gather only. Do not call brief_workspace. Cite paths and #issue/#PR numbers. Then call brief_eval with question, draft, and a short evidence excerpt.";
+      "Answer from gather only. Cite paths and #issue/#PR numbers. Then call brief_eval with question, draft, and a short evidence excerpt.";
   } else {
-    stages.gather = {
-      note: "No repo/url. Call brief_corpus for the bundled sample, or ask the user for owner/name or a public docs URL.",
-    };
-    stages.guidance = "If using corpus, answer from brief_corpus output, then brief_eval.";
+    stages.gather = searchCorpus(args.question);
+    stages.guidance =
+      "No repo/url was given, so the bundled local corpus was searched. Answer from hits or ask for owner/name / URL. Then brief_eval.";
   }
 
   let text = JSON.stringify(stages, null, 2);
@@ -617,52 +585,15 @@ function createBriefMcpServer(): McpServer {
   );
 
   server.tool(
-    "brief_workspace",
-    "DEPRECATED for the agent loop. Always skipped. Use brief_orchestrate or brief_auto instead. Do not call this tool.",
-    {
-      question: z.string().describe("Ignored. Tool is deprecated."),
-      repo: z.string().optional(),
-      source: z.enum(["fixture", "github"]).optional(),
-    },
-    async () => ({
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            skipped: true,
-            reason: "brief_workspace is banned in the agent loop (slow/flaky).",
-            next: "Use gather already returned by brief_auto or brief_orchestrate. Draft now, then brief_eval.",
-          }),
-        },
-      ],
-    }),
-  );
-
-  server.tool(
     "brief_corpus",
-    "Ask a local .md/.txt corpus a question (bundled sample docs). Not for remote GitHub repos.",
+    "Ask the bundled local markdown corpus (mcp/corpus). No external CLI. Not for remote GitHub repos.",
     {
       question: z.string(),
-      corpus: z.string().optional().describe("Directory of docs; omit for bundled sample"),
+      corpus: z.string().optional().describe("Optional directory of .md/.txt docs"),
     },
-    async ({ question, corpus }) => {
-      const args = ["--json", question];
-      if (corpus) args.splice(1, 0, "--corpus", corpus);
-      try {
-        const text = await runCmd("corpus-brief", args);
-        return { content: [{ type: "text", text }] };
-      } catch (e) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `brief_corpus failed: ${(e as Error).message}. Install corpus-brief.`,
-            },
-          ],
-          isError: true,
-        };
-      }
-    },
+    async ({ question, corpus }) => ({
+      content: [{ type: "text", text: JSON.stringify(searchCorpus(question, corpus), null, 2) }],
+    }),
   );
 
   server.tool(
@@ -678,7 +609,7 @@ function createBriefMcpServer(): McpServer {
 
   server.tool(
     "brief_auto",
-    "Autonomous one-shot: invent plan from goal, then gather evidence (orchestrate/corpus). Call once in auto mode, then draft + brief_eval. Do not call brief_workspace or extra fetch tools afterward.",
+    "Autonomous one-shot: invent plan from goal, then gather evidence. Call once in auto mode, then draft + brief_eval.",
     {
       goal: z.string().describe("Free-form user goal (may include owner/name or https URLs)"),
     },
@@ -686,42 +617,19 @@ function createBriefMcpServer(): McpServer {
       try {
         const plan = buildAutonomousPlan(goal);
         const invented = plan.invented as InventedPlan;
-        if (invented.source_kind === "corpus") {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    ...plan,
-                    gather_note: "Call brief_corpus next, or treat this as corpus-shaped and ask in chat.",
-                    guidance:
-                      "Use brief_corpus for local sample docs, draft from hits, then brief_eval. No other gather tools.",
-                  },
-                  null,
-                  2,
-                ),
-              },
-            ],
+        if (invented.source_kind === "corpus" || (!invented.repo && !invented.url)) {
+          const gather = searchCorpus(goal);
+          const packed = {
+            ...plan,
+            gather,
+            guidance:
+              invented.repo || invented.url
+                ? "Draft from gather, then brief_eval."
+                : gather.hits.length
+                  ? "Draft from local corpus hits, then brief_eval."
+                  : "No repo/URL and no corpus hits. Ask one clarifying question.",
           };
-        }
-        if (!invented.repo && !invented.url) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    ...plan,
-                    guidance:
-                      "Goal has no extractable repo/URL. Ask one clarifying question, or use brief_corpus.",
-                  },
-                  null,
-                  2,
-                ),
-              },
-            ],
-          };
+          return { content: [{ type: "text", text: JSON.stringify(packed, null, 2) }] };
         }
         const gather = await runOrchestrate({
           question: goal,
@@ -740,7 +648,7 @@ function createBriefMcpServer(): McpServer {
           ...plan,
           gather: gatherObj,
           guidance:
-            "Draft the user-facing brief NOW from gather only. Address each subgoal. Cite paths/#issue/URLs. Then call brief_eval. Do NOT call brief_workspace, brief_fetch_url, or brief_orchestrate again.",
+            "Draft the user-facing brief NOW from gather only. Address each subgoal. Cite paths/#issue/URLs. Then call brief_eval. Do not gather again.",
         };
         let text = JSON.stringify(packed, null, 2);
         if (text.length > 14000) text = truncate(text, 14000);
@@ -831,7 +739,7 @@ function createBriefMcpServer(): McpServer {
               backends: [
                 "GitHub (overview/ask/file)",
                 "public URL fetch",
-                "local corpus-brief",
+                "bundled mcp/corpus",
                 "free heuristic eval rubric",
                 "autonomous brief_auto",
               ],
@@ -866,7 +774,6 @@ app.get("/health", (_req, res) => {
     service: "brief-desk-mcp",
     version: MCP_VERSION,
     ready: true,
-    banned_tools: ["brief_workspace"],
     preferred_auto: "brief_auto",
     tools: [
       "brief_auto",
@@ -877,7 +784,6 @@ app.get("/health", (_req, res) => {
       "brief_repo_ask",
       "brief_repo_overview",
       "brief_repo_file",
-      "brief_workspace",
       "brief_corpus",
       "stack_info",
     ],
