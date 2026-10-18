@@ -15,7 +15,8 @@ Browser
            ├── brief_auto / brief_orchestrate
            ├── brief_eval
            ├── brief_fetch_url / brief_web_search
-           ├── GitHub tools
+           ├── brief_github_trending / brief_github_search
+           ├── brief_repo_* (ask/overview/file/releases/security)
            └── brief_corpus  →  mcp/corpus/*.md
 ```
 
@@ -24,6 +25,9 @@ Browser
 - **Deterministic run path** (`/api/brief-run`): gather → draft → eval → revise
 - **Autonomous auto mode** (`brief_auto`): invents plan from a free-form goal
 - **Web search** (`brief_web_search`): DuckDuckGo Instant Answer, no API key
+- **GitHub trending** (`brief_github_trending`): live scrape of github.com/trending
+- **Repo search** (`brief_github_search`): GitHub Search API shortlists
+- **Releases + security** (`brief_repo_releases`, `brief_repo_security`)
 - **In-chat tool cards** for MCP calls on the free-form path
 - **Live plan board** + **Cancel run** on the control panel
 - **Light / dark / system** theme
@@ -49,7 +53,7 @@ npm run dev
 ```
 
 - UI: http://localhost:3000
-- Python MCP health: http://127.0.0.1:3108/health (`runtime: python`, `version: 0.8.0`)
+- Python MCP health: http://127.0.0.1:3108/health (`runtime: python`, `version: 0.9.0`)
 
 Legacy TypeScript MCP (optional): `npm run dev:mcp:ts`
 
@@ -57,8 +61,9 @@ Legacy TypeScript MCP (optional): `npm run dev:mcp:ts`
 
 | Source | What you set | Behavior |
 |---|---|---|
-| **Auto** | free-form goal with `owner/name` or `https://…` | `brief_auto` then draft/eval (web search when useful) |
-| GitHub | `owner/name` + brief type | guided orchestrate |
+| **Auto** | free-form goal with `owner/name`, URL, trending, or “find libs…” | `brief_auto` then draft/eval |
+| **Trending** | language + daily/weekly/monthly | live GitHub trending shortlist |
+| GitHub | `owner/name` + brief type | guided orchestrate (+ releases/security on risks) |
 | Docs | public URL | fetch + brief |
 | Compare | two repos | side-by-side |
 | Corpus | none | bundled `mcp/corpus` docs |
@@ -73,7 +78,7 @@ curl -s -X POST http://localhost:3000/api/brief-run \
   -d '{"source":"auto","goal":"Brief facebook/react risks","question":"Brief facebook/react risks"}'
 ```
 
-**Render:** deploy with the root `Dockerfile` (Python MCP). After deploy, `/health` should show `"runtime":"python"` and `"version":"0.8.0"`.
+**Render:** deploy with the root `Dockerfile` (Python MCP). After deploy, `/health` should show `"runtime":"python"` and `"version":"0.9.0"`.
 
 **Vercel:** point `MCP_URL` at that Render `/mcp` endpoint.
 

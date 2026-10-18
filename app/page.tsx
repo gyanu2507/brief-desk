@@ -65,6 +65,7 @@ function sessionNote(
 ): string {
   const notes = ui.sessionNotes;
   if (args.source === "auto") return notes.auto;
+  if (args.source === "trending") return notes.trending || "Use brief_github_trending, then brief_eval.";
   if (args.source === "github") {
     return args.repo
       ? renderTemplate(notes.github_ready, { repo: args.repo, mode: args.mode })
@@ -96,6 +97,8 @@ export default function Page() {
   const [repoInput, setRepoInput] = useState("");
   const [repoBInput, setRepoBInput] = useState("");
   const [urlInput, setUrlInput] = useState("");
+  const [languageInput, setLanguageInput] = useState("typescript");
+  const [sinceInput, setSinceInput] = useState<"daily" | "weekly" | "monthly">("weekly");
   const [goalInput, setGoalInput] = useState(DEFAULT_AUTO_GOAL);
   const [saved, setSaved] = useState<SavedBrief[]>([]);
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
@@ -289,7 +292,8 @@ export default function Page() {
     (source === "github" && Boolean(repo)) ||
     (source === "url" && Boolean(url)) ||
     (source === "compare" && Boolean(repo) && Boolean(repoB)) ||
-    source === "corpus";
+    source === "corpus" ||
+    source === "trending";
 
   const canRun = ready && !mcpBlocked && !isLoading && !pipelineBusy;
   const canCancel = pipelineBusy || isLoading;
@@ -327,6 +331,8 @@ export default function Page() {
         repoB: string | null;
         url: string | null;
         goal: string | null;
+        language: string | null;
+        since: string | null;
       }>,
     ) => {
       if (isLoading || pipelineBusy) return;
@@ -343,18 +349,22 @@ export default function Page() {
       const r = override?.repo !== undefined ? override.repo : repo;
       const rB = override?.repoB !== undefined ? override.repoB : repoB;
       const u = override?.url !== undefined ? override.url : url;
+      const lang =
+        override?.language !== undefined ? override.language : languageInput.trim() || null;
+      const since = override?.since !== undefined ? override.since : sinceInput;
       const g = (override?.goal !== undefined ? override.goal : question || goal)?.trim() || "";
       const sessionReady =
         (s === "auto" && g.length >= 8) ||
         (s === "github" && Boolean(r)) ||
         (s === "url" && Boolean(u)) ||
         (s === "compare" && Boolean(r) && Boolean(rB)) ||
-        s === "corpus";
+        s === "corpus" ||
+        s === "trending";
       if (!sessionReady) return;
 
       // Show the prompt in CopilotChat, then fill the reply via /api/brief-run
       // (reliable). followUp:false so we do not also fire the free-form agent.
-      const userFacing = (s === "auto" ? g : question).trim();
+      const userFacing = (s === "auto" || s === "trending" ? g || question : question).trim();
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -368,7 +378,9 @@ export default function Page() {
           ? hasBriefAuto
             ? "brief_auto → draft → eval…"
             : "brief_plan → orchestrate → eval…"
-          : "orchestrate → draft → eval…",
+          : s === "trending"
+            ? "trending → draft → eval…"
+            : "orchestrate → draft → eval…",
       );
       emitPlan({ steps: planned, note: "Gathering…", active: true });
 
@@ -386,8 +398,10 @@ export default function Page() {
             repo: r,
             repoB: rB,
             url: u,
-            question: s === "auto" ? g : question,
-            goal: s === "auto" ? g : undefined,
+            language: s === "trending" ? lang : undefined,
+            since: s === "trending" ? since : undefined,
+            question: s === "auto" || s === "trending" ? g || question : question,
+            goal: s === "auto" || s === "trending" ? g || question : undefined,
           }),
           signal: controller.signal,
         });
@@ -470,6 +484,8 @@ export default function Page() {
       mcpOk,
       hasOrchestrate,
       hasBriefAuto,
+      languageInput,
+      sinceInput,
       appendMessage,
     ],
   );
@@ -544,24 +560,29 @@ export default function Page() {
         ? hasBriefAuto
           ? "Ready. Run agent → brief_auto → draft → eval."
           : "Ready (compat). Run agent → brief_plan → orchestrate → eval."
-        : source === "compare"
-          ? `Ready to compare ${repo} vs ${repoB}.`
-          : source === "url"
-            ? "Docs URL ready."
-            : source === "corpus"
-              ? "Corpus sample ready."
-              : `Repo ${repo} · ${mode} ready.`;
+        : source === "trending"
+          ? `Ready. Trending ${languageInput || "any"} · ${sinceInput}.`
+          : source === "compare"
+            ? `Ready to compare ${repo} vs ${repoB}.`
+            : source === "url"
+              ? "Docs URL ready."
+              : source === "corpus"
+                ? "Corpus sample ready."
+                : `Repo ${repo} · ${mode} ready.`;
 
   const startQuestion =
     source === "auto"
       ? goal
-      : source === "compare"
-        ? suggest[0] || "Compare these repositories."
-        : source === "corpus"
-          ? suggest[0] || "Summarize the sample docs."
-          : source === "url"
-            ? suggest[0] || "Summarize this document for an engineer."
-            : defaultQ?.[mode] || "Give a concise engineering brief with citations.";
+      : source === "trending"
+        ? suggest[0] ||
+          `Rank trending ${languageInput || "any"} repos (${sinceInput}) for an engineering team.`
+        : source === "compare"
+          ? suggest[0] || "Compare these repositories."
+          : source === "corpus"
+            ? suggest[0] || "Summarize the sample docs."
+            : source === "url"
+              ? suggest[0] || "Summarize this document for an engineer."
+              : defaultQ?.[mode] || "Give a concise engineering brief with citations.";
 
   return (
     <TranscriptProvider>
@@ -615,6 +636,7 @@ export default function Page() {
             {(
               [
                 ["auto", "Auto"],
+                ["trending", "Trending"],
                 ["github", "GitHub"],
                 ["url", "Docs"],
                 ["compare", "Compare"],
@@ -632,6 +654,32 @@ export default function Page() {
             ))}
           </div>
 
+          {source === "trending" ? (
+            <>
+              <p className="section-label">Language</p>
+              <input
+                className="field"
+                value={languageInput}
+                onChange={(e) => setLanguageInput(e.target.value)}
+                placeholder="typescript (or blank for any)"
+                spellCheck={false}
+              />
+              <p className="section-label">Window</p>
+              <div className="mode-row">
+                {(["daily", "weekly", "monthly"] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={`chip${sinceInput === s ? " active" : ""}`}
+                    onClick={() => setSinceInput(s)}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+
           {source === "auto" ? (
             <>
               <p className="section-label">Goal</p>
@@ -645,7 +693,10 @@ export default function Page() {
             </>
           ) : null}
 
-          {source !== "auto" && source !== "compare" && source !== "corpus" ? (
+          {source !== "auto" &&
+          source !== "compare" &&
+          source !== "corpus" &&
+          source !== "trending" ? (
             <>
               <p className="section-label">Brief type</p>
               <div className="mode-row">
@@ -750,7 +801,9 @@ export default function Page() {
               ? "Running…"
               : source === "auto"
                 ? "Run agent"
-                : "Start brief"}
+                : source === "trending"
+                  ? "Rank trending"
+                  : "Start brief"}
           </button>
 
           {canCancel ? (

@@ -23,8 +23,11 @@ npm run dev
 | `app/` | Next.js UI (chat, controls, theme) |
 | `lib/` | brief-run pipeline, MCP client, prompts |
 | `backend/` | Python MCP Streamable HTTP server |
+| `backend/src/brief_desk_mcp/discover.py` | Trending, repo search, releases, security |
 | `mcp/corpus/` | Bundled sample docs |
 | `prompts/` | System / route prompt files |
+
+New MCP tools go in `backend/`, get registered in `server.py` `TOOLS`, and should show up on `/health`.
 
 ## Checks before a PR
 

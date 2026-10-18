@@ -1,4 +1,4 @@
-export type SourceKind = "auto" | "github" | "url" | "compare" | "corpus";
+export type SourceKind = "auto" | "github" | "url" | "compare" | "corpus" | "trending";
 export type BriefMode =
   | "overview"
   | "risks"

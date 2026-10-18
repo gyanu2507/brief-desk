@@ -34,7 +34,7 @@ test("Python MCP health and root come up", async () => {
           assert.equal(body.ok, true);
           assert.equal(body.mcp, "/mcp");
           assert.equal(body.runtime, "python");
-          assert.equal(body.version, "0.8.0");
+          assert.equal(body.version, "0.9.0");
           assert.equal(body.ready, true);
           assert.ok(body.tools?.includes("brief_auto"));
           assert.ok(body.tools?.includes("brief_plan"));
@@ -42,6 +42,10 @@ test("Python MCP health and root come up", async () => {
           assert.ok(body.tools?.includes("brief_eval"));
           assert.ok(body.tools?.includes("brief_fetch_url"));
           assert.ok(body.tools?.includes("brief_web_search"));
+          assert.ok(body.tools?.includes("brief_github_trending"));
+          assert.ok(body.tools?.includes("brief_github_search"));
+          assert.ok(body.tools?.includes("brief_repo_releases"));
+          assert.ok(body.tools?.includes("brief_repo_security"));
           assert.ok(body.tools?.includes("brief_corpus"));
           assert.ok(!body.tools?.includes("brief_workspace"));
           ready = true;

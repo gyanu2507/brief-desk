@@ -9,9 +9,13 @@ const TOOL_HINTS: Record<string, string> = {
   brief_eval: "Heuristic groundedness check",
   brief_fetch_url: "Public URL fetch",
   brief_web_search: "DuckDuckGo Instant Answer",
+  brief_github_trending: "GitHub trending page",
+  brief_github_search: "GitHub repo search",
   brief_repo_ask: "GitHub evidence pack",
   brief_repo_overview: "GitHub README + meta",
   brief_repo_file: "GitHub file contents",
+  brief_repo_releases: "GitHub releases",
+  brief_repo_security: "GitHub security advisories",
   brief_corpus: "Bundled mcp/corpus",
   stack_info: "Stack descriptor",
 };

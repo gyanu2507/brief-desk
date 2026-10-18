@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brief-desk-mcp"
-version = "0.8.0"
-description = "Python MCP backend for brief-desk (GitHub, URLs, web search, corpus)."
+version = "0.9.0"
+description = "Python MCP backend for brief-desk (GitHub, trending, search, URLs, web, corpus)."
 requires-python = ">=3.11"
 dependencies = [
   "httpx>=0.27,<1",

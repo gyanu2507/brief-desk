@@ -1,11 +1,13 @@
 import { callMcpTool } from "./mcp-client";
 
 export type BriefRunInput = {
-  source: "auto" | "github" | "url" | "compare" | "corpus";
+  source: "auto" | "github" | "url" | "compare" | "corpus" | "trending";
   mode?: string;
   repo?: string | null;
   repoB?: string | null;
   url?: string | null;
+  language?: string | null;
+  since?: string | null;
   question: string;
   goal?: string | null;
 };
@@ -174,6 +176,23 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
         };
       }
       evidence = corpus.text;
+    } else if (input.source === "trending") {
+      steps.push("brief_github_trending");
+      const trend = await callMcpTool("brief_github_trending", {
+        language: input.language || undefined,
+        since: input.since || "weekly",
+        max_results: 10,
+      });
+      if (!trend.ok) {
+        return {
+          ok: false,
+          answer: "",
+          steps,
+          error: trend.error || "trending failed",
+          ms: Date.now() - t0,
+        };
+      }
+      evidence = trend.text;
     } else {
       steps.push("brief_orchestrate");
       const orch = await callMcpTool("brief_orchestrate", {

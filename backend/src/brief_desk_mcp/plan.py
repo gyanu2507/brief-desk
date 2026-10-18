@@ -98,9 +98,45 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
     docs_urls = [u for u in urls if "github.com/" not in u.lower()]
     mode = classify_brief_mode(goal)
 
+    want_trending = bool(
+        re.search(r"\b(trending|trend(ing)?\s+on\s+github|github\s+trending)\b", goal, flags=re.I)
+    )
+    want_repo_search = bool(
+        re.search(
+            r"\b(find|search|discover|shortlist|recommend)\b.*\b(repo|repos|repositories|libraries|frameworks)\b",
+            goal,
+            flags=re.I,
+        )
+    ) or bool(re.search(r"\b(best|top)\b.*\b(libraries|frameworks|repos?)\b", goal, flags=re.I))
+
+    language = None
+    lang_m = re.search(
+        r"\b(typescript|javascript|python|rust|go|golang|java|kotlin|swift|ruby|php|c\+\+|c#|csharp|vue|svelte)\b",
+        goal,
+        flags=re.I,
+    )
+    if lang_m:
+        language = lang_m.group(1).lower()
+        if language == "golang":
+            language = "go"
+        if language == "csharp":
+            language = "c#"
+        if language == "c++":
+            language = "c++"
+
+    since = "weekly"
+    if re.search(r"\b(today|daily)\b", goal, flags=re.I):
+        since = "daily"
+    elif re.search(r"\b(month(ly)?)\b", goal, flags=re.I):
+        since = "monthly"
+
     source_kind = "auto"
     if mode == "compare" and len(repos) >= 2:
         source_kind = "compare"
+    elif want_trending and not repos:
+        source_kind = "trending"
+    elif want_repo_search and not repos and not docs_urls:
+        source_kind = "discover"
     elif docs_urls and not repos:
         source_kind = "url"
     elif repos:
@@ -114,8 +150,27 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
     if source_kind == "compare" or (mode == "compare" and len(repos) >= 2):
         subgoals.append(f"Compare {repos[0]} vs {repos[1]} on purpose, stack, maturity")
         subgoals.append("Call out when to pick which")
+    elif source_kind == "trending":
+        subgoals.extend(
+            [
+                f"List trending GitHub repos ({language or 'any'}, {since})",
+                "Rank a shortlist with why each matters; cite trending + repo URLs",
+            ]
+        )
+    elif source_kind == "discover":
+        subgoals.extend(
+            [
+                "Search GitHub for matching repositories",
+                "Shortlist by stars/freshness/fit; cite repo URLs",
+            ]
+        )
     elif mode == "risks":
-        subgoals.extend(["Surface open issues / security signals", "Rank top risks with citations"])
+        subgoals.extend(
+            [
+                "Surface open issues / security advisories",
+                "Rank top risks with citations",
+            ]
+        )
     elif mode == "architecture":
         subgoals.extend(["Map modules and entry points", "Explain how the core flow fits together"])
     elif docs_urls:
@@ -131,6 +186,18 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
 
     if source_kind == "corpus":
         tool_steps = ["brief_auto (or brief_corpus)", "draft from evidence", "brief_eval"]
+    elif source_kind == "trending":
+        tool_steps = [
+            "brief_github_trending",
+            "draft shortlist from repos",
+            "brief_eval",
+        ]
+    elif source_kind == "discover":
+        tool_steps = [
+            "brief_github_search",
+            "draft shortlist from repos",
+            "brief_eval",
+        ]
     elif repos or docs_urls:
         tool_steps = [
             "brief_auto once (plan+gather)",
@@ -141,7 +208,7 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
     else:
         tool_steps = [
             "ask user for owner/name or public URL if goal is too vague",
-            "or brief_corpus if they meant the sample",
+            "or brief_github_trending / brief_github_search / brief_corpus",
         ]
 
     return {
@@ -152,6 +219,8 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
             "repo": repos[0] if repos else None,
             "repo_b": repos[1] if len(repos) > 1 else None,
             "url": docs_urls[0] if docs_urls else None,
+            "language": language,
+            "since": since if source_kind == "trending" else None,
             "subgoals": subgoals,
         },
         "tool_steps": tool_steps,
@@ -162,7 +231,7 @@ def build_autonomous_plan(goal: str) -> dict[str, Any]:
         ],
         "next": (
             "Execute tool_steps now. Do not wait for the user to fill the left panel."
-            if repos or docs_urls or source_kind == "corpus"
-            else "Goal has no extractable repo/URL. Ask one clarifying question or use brief_corpus."
+            if repos or docs_urls or source_kind in ("corpus", "trending", "discover")
+            else "Goal has no extractable repo/URL. Ask one clarifying question or use discover/trending/corpus tools."
         ),
     }

@@ -21,6 +21,12 @@ from brief_desk_mcp.github_tools import (
     fetch_repo_ask,
     fetch_repo_overview,
 )
+from brief_desk_mcp.discover import (
+    fetch_repo_releases,
+    fetch_repo_security,
+    fetch_trending,
+    search_github_repos,
+)
 from brief_desk_mcp.orchestrate import run_auto, run_orchestrate
 from brief_desk_mcp.plan import build_autonomous_plan, normalize_github_repo
 from brief_desk_mcp.web_search import search_web
@@ -32,9 +38,13 @@ TOOLS = [
     "brief_eval",
     "brief_fetch_url",
     "brief_web_search",
+    "brief_github_trending",
+    "brief_github_search",
     "brief_repo_ask",
     "brief_repo_overview",
     "brief_repo_file",
+    "brief_repo_releases",
+    "brief_repo_security",
     "brief_corpus",
     "stack_info",
 ]
@@ -197,6 +207,78 @@ async def brief_web_search(query: str, max_results: int = 6) -> str:
 
 
 @mcp.tool(
+    name="brief_github_trending",
+    description="Live GitHub trending repos (scrapes github.com/trending). language + since=daily|weekly|monthly.",
+)
+async def brief_github_trending(
+    language: str | None = None,
+    since: str = "weekly",
+    max_results: int = 10,
+) -> str:
+    try:
+        return _json(
+            await fetch_trending(
+                language=language,
+                since=since,
+                max_results=max(1, min(max_results, 25)),
+            )
+        )
+    except Exception as e:
+        raise ToolError(f"brief_github_trending failed: {e}") from e
+
+
+@mcp.tool(
+    name="brief_github_search",
+    description="Search public GitHub repositories (API). Optional language + sort=stars|forks|updated.",
+)
+async def brief_github_search(
+    query: str,
+    language: str | None = None,
+    sort: str = "stars",
+    max_results: int = 8,
+) -> str:
+    try:
+        return _json(
+            await search_github_repos(
+                query,
+                language=language,
+                sort=sort,
+                max_results=max(1, min(max_results, 20)),
+            )
+        )
+    except Exception as e:
+        raise ToolError(f"brief_github_search failed: {e}") from e
+
+
+@mcp.tool(
+    name="brief_repo_releases",
+    description="List recent published GitHub releases for owner/name.",
+)
+async def brief_repo_releases(repo: str, max_results: int = 5) -> str:
+    target = normalize_github_repo(repo or os.environ.get("BRIEF_REPO"))
+    if not target:
+        raise ToolError("repo is required (owner/name)")
+    try:
+        return _json(await fetch_repo_releases(target, max_results=max(1, min(max_results, 15))))
+    except Exception as e:
+        raise ToolError(f"brief_repo_releases failed: {e}") from e
+
+
+@mcp.tool(
+    name="brief_repo_security",
+    description="Published GitHub security advisories for a repo (GHSA/CVE). Not private Dependabot alerts.",
+)
+async def brief_repo_security(repo: str, max_results: int = 8) -> str:
+    target = normalize_github_repo(repo or os.environ.get("BRIEF_REPO"))
+    if not target:
+        raise ToolError("repo is required (owner/name)")
+    try:
+        return _json(await fetch_repo_security(target, max_results=max(1, min(max_results, 20))))
+    except Exception as e:
+        raise ToolError(f"brief_repo_security failed: {e}") from e
+
+
+@mcp.tool(
     name="stack_info",
     description="Describe the brief-desk protocol stack.",
 )
@@ -208,7 +290,8 @@ async def stack_info() -> str:
             "tools": "MCP Streamable HTTP (Python)",
             "loop": "brief_auto (plan+gather) → draft → brief_eval → revise",
             "backends": [
-                "GitHub (overview/ask/file)",
+                "GitHub (overview/ask/file/releases/security)",
+                "GitHub trending scrape + repo search",
                 "public URL fetch",
                 "DuckDuckGo Instant Answer (brief_web_search)",
                 "bundled mcp/corpus",

@@ -6,6 +6,12 @@ from typing import Any
 import re
 
 from brief_desk_mcp.corpus import search_corpus
+from brief_desk_mcp.discover import (
+    fetch_repo_releases,
+    fetch_repo_security,
+    fetch_trending,
+    search_github_repos,
+)
 from brief_desk_mcp.github_tools import (
     fetch_public_url,
     fetch_repo_ask,
@@ -73,6 +79,19 @@ async def run_orchestrate(
                 "overview": json.loads(await fetch_repo_overview(repo_n)),
                 "hint": "If the user wants local docs only, also call brief_corpus.",
             }
+        elif mode_v == "risks":
+            ask = json.loads(await fetch_repo_ask(repo_n, question))
+            stages["gather"] = {
+                "ask": ask,
+                "security": await fetch_repo_security(repo_n),
+                "releases": await fetch_repo_releases(repo_n, max_results=3),
+            }
+        elif mode_v == "activity":
+            ask = json.loads(await fetch_repo_ask(repo_n, question))
+            stages["gather"] = {
+                "ask": ask,
+                "releases": await fetch_repo_releases(repo_n, max_results=5),
+            }
         else:
             stages["gather"] = json.loads(await fetch_repo_ask(repo_n, question))
         stages["guidance"] = (
@@ -96,17 +115,58 @@ async def run_auto(goal: str) -> str:
     plan = build_autonomous_plan(goal)
     invented = plan["invented"]
     want_web = bool(re.search(r"\b(web|search|internet|online|news)\b", goal, re.I))
+    kind = invented.get("source_kind")
 
-    if invented["source_kind"] == "corpus" or (not invented["repo"] and not invented["url"]):
+    if kind == "trending":
+        trending = await fetch_trending(
+            language=invented.get("language"),
+            since=invented.get("since") or "weekly",
+            max_results=10,
+        )
+        packed = {
+            **plan,
+            "gather": {"trending": trending},
+            "guidance": (
+                "Draft a ranked shortlist from trending.repos. Cite the trending URL and each repo. "
+                "Then brief_eval. Do not gather again."
+            ),
+        }
+        return json.dumps(packed, indent=2)
+
+    if kind == "discover":
+        search = await search_github_repos(
+            goal,
+            language=invented.get("language"),
+            sort="stars",
+            max_results=8,
+        )
+        packed = {
+            **plan,
+            "gather": {"search": search},
+            "guidance": (
+                "Draft a shortlist from search.repos (fit + stars + freshness). Cite repo URLs. "
+                "Then brief_eval."
+            ),
+        }
+        return json.dumps(packed, indent=2)
+
+    if kind == "corpus" or (not invented["repo"] and not invented["url"]):
         gather: dict[str, Any] = {"corpus": search_corpus(goal)}
         if want_web or not gather["corpus"]["hits"]:
             gather["web"] = await search_web(goal)
-        hits = gather["corpus"]["hits"] or (gather.get("web") or {}).get("hits") or []
+        if want_web and "find" in goal.lower():
+            gather["search"] = await search_github_repos(goal, max_results=5)
+        hits = (
+            gather["corpus"]["hits"]
+            or (gather.get("web") or {}).get("hits")
+            or (gather.get("search") or {}).get("repos")
+            or []
+        )
         packed = {
             **plan,
             "gather": gather,
             "guidance": (
-                "Draft from gather (corpus and/or web), then brief_eval. Cite file paths or URLs."
+                "Draft from gather (corpus and/or web/search), then brief_eval. Cite file paths or URLs."
                 if hits
                 else "No repo/URL and no corpus/web hits. Ask one clarifying question."
             ),

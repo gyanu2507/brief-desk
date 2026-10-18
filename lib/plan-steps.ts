@@ -28,6 +28,13 @@ export function expectedSteps(source: string, hasBriefAuto: boolean): PlanStep[]
       { id: "eval", label: "brief_eval", state: "pending" },
     ];
   }
+  if (source === "trending") {
+    return [
+      { id: "trend", label: "brief_github_trending", state: "pending" },
+      { id: "draft", label: "draft", state: "pending" },
+      { id: "eval", label: "brief_eval", state: "pending" },
+    ];
+  }
   return [
     { id: "orch", label: "brief_orchestrate", state: "pending" },
     { id: "draft", label: "draft", state: "pending" },

@@ -77,6 +77,9 @@ export function renderSessionNote(args: {
   const ui = loadUiConfig();
   const notes = ui.sessionNotes;
   if (args.source === "auto") return notes.auto;
+  if (args.source === "trending") {
+    return notes.trending || "Use brief_github_trending, then brief_eval.";
+  }
   if (args.source === "github") {
     return args.repo
       ? renderTemplate(notes.github_ready, { repo: args.repo, mode: args.mode })

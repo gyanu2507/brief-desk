@@ -3,7 +3,7 @@ import type { BriefMode, PromptUi, SourceKind } from "./types";
 /** Client-safe defaults so demos/queries work even if /api/prompts is slow. */
 export const FALLBACK_UI: PromptUi = {
   readableDescription:
-    "Active brief-desk session. Prefer brief_auto (or brief_plan+brief_orchestrate), then draft + brief_eval.",
+    "Active brief-desk session. Prefer brief_auto (or plan+orchestrate/trending/search), then draft + brief_eval.",
   modes: [
     { id: "overview", label: "Overview" },
     { id: "risks", label: "Risks" },
@@ -26,12 +26,14 @@ export const FALLBACK_UI: PromptUi = {
     auto: [
       "Brief facebook/react risks for an eng manager.",
       "Compare vercel/next.js vs remix-run/remix for a SaaS frontend.",
-      "Summarize https://modelcontextprotocol.io/introduction for an MCP tool author.",
+      "What TypeScript repos are trending on GitHub this week?",
+      "Find React form libraries with strong TypeScript support.",
     ],
     github: [
       "What are the main features?",
       "What are the biggest risks right now?",
       "How is the project structured?",
+      "What shipped in the latest releases?",
     ],
     url: [
       "Summarize this document for an engineer.",
@@ -48,9 +50,14 @@ export const FALLBACK_UI: PromptUi = {
       "Summarize the sample docs.",
       "What open questions remain in the corpus?",
     ],
+    trending: [
+      "Rank this week's trending TypeScript repos for a frontend team.",
+      "Which trending repos look production-ready vs experimental?",
+      "Shortlist 5 picks and why an eng manager should care.",
+    ],
   },
   sessionNotes: {
-    auto: "Call brief_auto once (or brief_plan + brief_orchestrate). Draft + brief_eval.",
+    auto: "Call brief_auto once (or brief_plan + gather tools). Draft + brief_eval.",
     github_ready: "Use brief_orchestrate with repo={{repo}} and mode={{mode}}, then brief_eval.",
     github_missing: "Ask user for owner/name or switch to Auto.",
     url_ready: "Use brief_orchestrate with url={{url}}{{repo_suffix}}, mode={{mode}}, then brief_eval.",
@@ -58,6 +65,7 @@ export const FALLBACK_UI: PromptUi = {
     compare_ready: "Use brief_orchestrate mode=compare repo={{repo}} repo_b={{repo_b}}, then brief_eval.",
     compare_missing: "Need two owner/name values, or use Auto with both in the goal.",
     corpus: "Use brief_corpus once, then brief_eval.",
+    trending: "Use brief_github_trending (language/since), draft shortlist, then brief_eval.",
   },
   demos: [
     {
@@ -68,18 +76,25 @@ export const FALLBACK_UI: PromptUi = {
       question: "Brief facebook/react risks for an eng manager.",
     },
     {
+      label: "Trending · TypeScript week",
+      source: "trending" as SourceKind,
+      mode: "general" as BriefMode,
+      goal: "Rank this week's trending TypeScript repos for a frontend team.",
+      question: "Rank this week's trending TypeScript repos for a frontend team.",
+    },
+    {
+      label: "Auto · Find form libs",
+      source: "auto" as SourceKind,
+      mode: "general" as BriefMode,
+      goal: "Find React form libraries with strong TypeScript support. Shortlist with stars and fit.",
+      question: "Find React form libraries with strong TypeScript support. Shortlist with stars and fit.",
+    },
+    {
       label: "Auto · Next vs Remix",
       source: "auto" as SourceKind,
       mode: "general" as BriefMode,
       goal: "Compare vercel/next.js vs remix-run/remix for a production SaaS frontend. Cite README facts.",
       question: "Compare vercel/next.js vs remix-run/remix for a production SaaS frontend. Cite README facts.",
-    },
-    {
-      label: "Auto · MCP docs",
-      source: "auto" as SourceKind,
-      mode: "general" as BriefMode,
-      goal: "Summarize https://modelcontextprotocol.io/introduction for an engineer building an MCP tool server.",
-      question: "Summarize https://modelcontextprotocol.io/introduction for an engineer building an MCP tool server.",
     },
     {
       label: "Guided · React risks",

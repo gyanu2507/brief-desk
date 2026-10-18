@@ -83,12 +83,20 @@ function routeForTool(name: string): string {
       return "MCP → public URL fetch";
     case "brief_web_search":
       return "MCP → DuckDuckGo Instant Answer";
+    case "brief_github_trending":
+      return "MCP → github.com/trending scrape";
+    case "brief_github_search":
+      return "MCP → GitHub repo search API";
     case "brief_repo_ask":
       return "MCP → GitHub (README + issues + code + releases)";
     case "brief_repo_overview":
       return "MCP → GitHub README API";
     case "brief_repo_file":
       return "MCP → GitHub Contents API";
+    case "brief_repo_releases":
+      return "MCP → GitHub Releases API";
+    case "brief_repo_security":
+      return "MCP → GitHub Security Advisories";
     case "brief_corpus":
       return "MCP → bundled mcp/corpus";
     case "stack_info":
