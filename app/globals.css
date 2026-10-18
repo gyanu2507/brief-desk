@@ -46,8 +46,9 @@ a {
     grid-template-rows: auto minmax(50vh, 1fr) minmax(200px, 36vh) !important;
   }
 
-  .desk-shell > aside:first-of-type {
+  .desk-shell > .desk-controls {
     border-right: none;
     border-bottom: 1px solid var(--line);
+    max-height: none !important;
   }
 }
