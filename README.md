@@ -85,11 +85,12 @@ Until then the UI runs in **compat mode** (`brief_plan` → `brief_orchestrate`)
 
 ### Reliability rules
 
-- One gather call, then draft + `brief_eval` (max 6 agent steps)
+- **Run agent / demos** use deterministic `POST /api/brief-run` (gather → draft → eval). No flaky multi-step chat loop.
+- Free-form chat still uses CopilotKit (Qwen on Groq by default).
 - `brief_workspace` is deprecated and always skipped
 - GitHub/URL fetches time out at 10s; CLI tools at 8s
 - UI ships fallback demos so the left panel is never empty
-- 90s client watchdog surfaces a clear timeout error
+- 90s client watchdog surfaces a clear timeout error for chat runs
 
 `GITHUB_TOKEN` on the MCP host unlocks code search and higher GitHub rate limits.
 

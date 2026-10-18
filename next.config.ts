@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/copilotkit/**/*": ["./prompts/**/*"],
     "/api/prompts/**/*": ["./prompts/**/*"],
+    "/api/brief-run/**/*": ["./prompts/**/*"],
   },
 };
 

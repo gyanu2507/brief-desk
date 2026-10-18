@@ -280,8 +280,26 @@ export function AgentLog() {
         },
       ]);
     };
+    const onAnswer = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ answer?: string; steps?: string[]; ms?: number }>).detail;
+      const steps = Array.isArray(detail?.steps) ? detail.steps.join(" → ") : "brief-run";
+      setRuntimeErrors((prev) => [
+        ...prev.slice(-19),
+        {
+          id: `ans-${Date.now()}`,
+          t: Date.now(),
+          kind: "answer",
+          title: `Brief result ← ${steps}`,
+          detail: truncateOneLine(detail?.answer || "", 200),
+        },
+      ]);
+    };
     window.addEventListener("brief-desk-error", onErr);
-    return () => window.removeEventListener("brief-desk-error", onErr);
+    window.addEventListener("brief-desk-answer", onAnswer);
+    return () => {
+      window.removeEventListener("brief-desk-error", onErr);
+      window.removeEventListener("brief-desk-answer", onAnswer);
+    };
   }, []);
 
   const built = buildEntries(messages, runtimeErrors);

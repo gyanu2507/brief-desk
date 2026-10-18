@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test:mcp": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts",
     "test:prompts": "tsx --test lib/prompts.test.ts",
-    "test": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts"
+    "test": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/brief-run.test.ts"
   },
   "dependencies": {
     "@ag-ui/client": "1.0.2",

@@ -91,7 +91,7 @@ const fieldStyle: CSSProperties = {
 };
 
 export default function Page() {
-  const { sendMessage, isLoading } = useCopilotChatInternal();
+  const { isLoading } = useCopilotChatInternal();
   const [source, setSource] = useState<SourceKind>("auto");
   const [mode, setMode] = useState<BriefMode>("overview");
   const [repoInput, setRepoInput] = useState("");
@@ -103,6 +103,8 @@ export default function Page() {
   const [mcpVersion, setMcpVersion] = useState<string>("");
   const [mcpTools, setMcpTools] = useState<string[]>([]);
   const [busyNote, setBusyNote] = useState<string | null>(null);
+  const [briefResult, setBriefResult] = useState<string | null>(null);
+  const [briefMeta, setBriefMeta] = useState<string | null>(null);
   const [promptUi, setPromptUi] = useState<PromptUi>(FALLBACK_UI);
   const [promptRoutes, setPromptRoutes] = useState<string[]>([
     "auto",
@@ -266,7 +268,8 @@ export default function Page() {
     (source === "compare" && Boolean(repo) && Boolean(repoB)) ||
     source === "corpus";
 
-  const canRun = ready && mcpReady && !isLoading;
+  const [pipelineBusy, setPipelineBusy] = useState(false);
+  const canRun = ready && mcpReady && !isLoading && !pipelineBusy;
 
   const runBrief = useCallback(
     async (
@@ -280,7 +283,7 @@ export default function Page() {
         goal: string | null;
       }>,
     ) => {
-      if (isLoading) return;
+      if (isLoading || pipelineBusy) return;
       if (mcpOk !== true || !hasOrchestrate) {
         window.dispatchEvent(
           new CustomEvent("brief-desk-error", {
@@ -303,15 +306,19 @@ export default function Page() {
         s === "corpus";
       if (!sessionReady) return;
 
+      // Deterministic server pipeline (reliable). Chat remains for free-form follow-ups.
+      setPipelineBusy(true);
+      setBriefResult(null);
+      setBriefMeta(null);
       setBusyNote(
         s === "auto"
           ? hasBriefAuto
             ? "brief_auto → draft → eval…"
             : "brief_plan → orchestrate → eval…"
-          : "orchestrate → eval…",
+          : "orchestrate → draft → eval…",
       );
       try {
-        const res = await fetch("/api/prompts", {
+        const res = await fetch("/api/brief-run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -324,25 +331,41 @@ export default function Page() {
             goal: s === "auto" ? g : undefined,
           }),
         });
-        const body = (await res.json()) as { content?: string; error?: string };
-        if (!res.ok || !body.content) {
-          throw new Error(body.error || "Failed to render start-brief prompt");
+        const body = (await res.json()) as {
+          ok?: boolean;
+          answer?: string;
+          steps?: string[];
+          error?: string;
+          ms?: number;
+          eval?: { pass?: boolean; scores?: { overall?: number } };
+        };
+        if (!res.ok || !body.ok || !body.answer) {
+          throw new Error(body.error || "brief-run failed");
         }
-        await sendMessage({
-          id: crypto.randomUUID(),
-          role: "user",
-          content: body.content,
-        });
+        setBriefResult(body.answer);
+        const score =
+          typeof body.eval?.scores?.overall === "number"
+            ? ` · eval ${body.eval.scores.overall}`
+            : body.eval?.pass === true
+              ? " · eval pass"
+              : "";
+        setBriefMeta(`${(body.steps || []).join(" → ")}${score} · ${body.ms ?? "?"}ms`);
+        window.dispatchEvent(
+          new CustomEvent("brief-desk-answer", {
+            detail: { answer: body.answer, steps: body.steps, ms: body.ms },
+          }),
+        );
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Agent run failed";
+        const message = e instanceof Error ? e.message : "brief-run failed";
         window.dispatchEvent(new CustomEvent("brief-desk-error", { detail: message }));
       } finally {
         setBusyNote(null);
+        setPipelineBusy(false);
       }
     },
     [
       isLoading,
-      sendMessage,
+      pipelineBusy,
       source,
       mode,
       repo,
@@ -667,7 +690,11 @@ export default function Page() {
               cursor: !canRun ? "not-allowed" : "pointer",
             }}
           >
-            {isLoading || busyNote ? "Running…" : source === "auto" ? "Run agent" : "Start brief"}
+            {pipelineBusy || busyNote
+              ? "Running…"
+              : source === "auto"
+                ? "Run agent"
+                : "Start brief"}
           </button>
 
           <button
@@ -756,15 +783,20 @@ export default function Page() {
           ) : null}
         </aside>
 
-        <section style={{ minHeight: "100vh", background: "#eef2ff", minWidth: 0, position: "relative" }}>
-          {busyNote || isLoading ? (
+        <section
+          style={{
+            minHeight: "100vh",
+            background: "#eef2ff",
+            minWidth: 0,
+            position: "relative",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          {busyNote || pipelineBusy || isLoading ? (
             <div
               style={{
-                position: "absolute",
-                top: 10,
-                left: 12,
-                right: 12,
-                zIndex: 5,
+                margin: "10px 12px 0",
                 padding: "8px 12px",
                 borderRadius: 8,
                 background: "#0f172a",
@@ -772,17 +804,79 @@ export default function Page() {
                 fontSize: 12,
               }}
             >
-              {busyNote || "Agent running… watch the log for orchestrate → eval."}
+              {busyNote ||
+                (pipelineBusy
+                  ? "Server pipeline running…"
+                  : "Chat agent running… watch the log.")}
             </div>
           ) : null}
-          <CopilotChat
-            labels={{
-              title: "brief-desk",
-              initial: chatHint,
-            }}
-            className="h-full"
-            Messages={LoggingMessages}
-          />
+          {briefResult ? (
+            <div
+              style={{
+                margin: "10px 12px 0",
+                padding: "12px 14px",
+                borderRadius: 10,
+                background: "#fff",
+                border: "1px solid var(--line)",
+                maxHeight: "42vh",
+                overflow: "auto",
+                zIndex: 4,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  marginBottom: 8,
+                  fontSize: 11,
+                  color: "var(--muted)",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                <span>BRIEF RESULT{briefMeta ? ` · ${briefMeta}` : ""}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBriefResult(null);
+                    setBriefMeta(null);
+                  }}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "var(--muted)",
+                    cursor: "pointer",
+                    fontSize: 11,
+                    textDecoration: "underline",
+                  }}
+                >
+                  dismiss
+                </button>
+              </div>
+              <pre
+                style={{
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  fontFamily: "ui-sans-serif, system-ui, sans-serif",
+                  fontSize: 13,
+                  lineHeight: 1.45,
+                  color: "var(--ink)",
+                }}
+              >
+                {briefResult}
+              </pre>
+            </div>
+          ) : null}
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <CopilotChat
+              labels={{
+                title: "brief-desk",
+                initial: chatHint,
+              }}
+              className="h-full"
+              Messages={LoggingMessages}
+            />
+          </div>
         </section>
         <AgentLog />
       </main>

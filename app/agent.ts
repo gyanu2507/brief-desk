@@ -14,11 +14,13 @@ const PROVIDER_ALIASES: Record<string, "openai" | "anthropic" | "google"> = {
  * must be passed as `openai/openai/gpt-oss-20b` (modelId keeps the slash).
  */
 const GROQ_MODEL_ALIASES: Record<string, string> = {
-  "llama-3.3-70b-versatile": "openai/gpt-oss-20b",
-  "llama-3.1-8b-instant": "openai/gpt-oss-20b",
-  "llama-3.1-70b-versatile": "openai/gpt-oss-20b",
+  "llama-3.3-70b-versatile": "qwen/qwen3.8-27b",
+  "llama-3.1-8b-instant": "qwen/qwen3.8-27b",
+  "llama-3.1-70b-versatile": "qwen/qwen3.8-27b",
   "gpt-oss-20b": "openai/gpt-oss-20b",
   "gpt-oss-120b": "openai/gpt-oss-120b",
+  "qwen3.8-27b": "qwen/qwen3.8-27b",
+  "qwen/qwen3.8-27b": "qwen/qwen3.8-27b",
 };
 
 export function resolveAgentModel(defaultSpec: string): string {
@@ -42,7 +44,8 @@ export function createDefaultAgent(): BuiltInAgent {
   const mcpUrl = process.env.MCP_URL || "http://127.0.0.1:3108/mcp";
 
   return new BuiltInAgent({
-    model: resolveAgentModel("openai:openai/gpt-oss-20b"),
+    // qwen emits final answer content more reliably than gpt-oss on Groq free tier.
+    model: resolveAgentModel("openai:qwen/qwen3.8-27b"),
     maxSteps: 6,
     prompt: loadAgentSystemPrompt(),
     mcpServers: [
