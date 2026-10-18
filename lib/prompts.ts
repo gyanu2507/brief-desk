@@ -80,6 +80,9 @@ export function renderSessionNote(args: {
   if (args.source === "trending") {
     return notes.trending || "Use brief_github_trending, then brief_eval.";
   }
+  if (args.source === "package") {
+    return notes.package_missing || "Pick npm or PyPI and a package name.";
+  }
   if (args.source === "github") {
     return args.repo
       ? renderTemplate(notes.github_ready, { repo: args.repo, mode: args.mode })

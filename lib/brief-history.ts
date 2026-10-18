@@ -1,4 +1,4 @@
-import type { BriefMode, SourceKind } from "./types";
+import type { BriefMode, PackageRegistry, SourceKind } from "./types";
 
 export const HISTORY_STORE_KEY = "brief-desk-history-v1";
 export const HISTORY_MAX = 20;
@@ -17,6 +17,8 @@ export type BriefHistoryEntry = {
   repoB?: string;
   url?: string;
   goal?: string;
+  packageName?: string;
+  packageRegistry?: PackageRegistry;
   steps?: string[];
   evalScore?: number | null;
   ms?: number;
@@ -71,9 +73,14 @@ export function historyLabel(args: {
   repo?: string | null;
   goal?: string | null;
   question: string;
+  packageName?: string | null;
+  packageRegistry?: PackageRegistry | null;
 }): string {
   if (args.source === "auto" || args.source === "trending") {
     return (args.goal || args.question).slice(0, 56);
+  }
+  if (args.source === "package" && args.packageName) {
+    return `${args.packageRegistry || "npm"} · ${args.packageName}`.slice(0, 56);
   }
   if (args.repo) return `${args.source} · ${args.repo}`;
   return (args.question || args.source).slice(0, 56);

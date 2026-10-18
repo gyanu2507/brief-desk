@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   isKnownLanguage,
+  normalizePackageName,
+  PACKAGE_REGISTRIES,
   THEME_OPTIONS,
   TRENDING_LANGUAGES,
   TRENDING_SINCE,
@@ -31,4 +33,19 @@ test("theme options cover light dark system", () => {
     THEME_OPTIONS.map((o) => o.value),
     ["system", "light", "dark"],
   );
+});
+
+test("package registries are npm and pypi", () => {
+  assert.deepEqual(
+    PACKAGE_REGISTRIES.map((o) => o.value),
+    ["npm", "pypi"],
+  );
+});
+
+test("normalizePackageName accepts scoped npm and plain names", () => {
+  assert.equal(normalizePackageName("zod", "npm"), "zod");
+  assert.equal(normalizePackageName("@tanstack/react-query", "npm"), "@tanstack/react-query");
+  assert.equal(normalizePackageName("httpx", "pypi"), "httpx");
+  assert.equal(normalizePackageName("!!!", "npm"), null);
+  assert.equal(normalizePackageName("", "pypi"), null);
 });

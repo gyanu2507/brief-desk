@@ -56,6 +56,11 @@ export const FALLBACK_UI: PromptUi = {
       "Which trending repos look production-ready vs experimental?",
       "Shortlist 5 picks and why an eng manager should care.",
     ],
+    package: [
+      "Summarize latest version, license, and linked repo.",
+      "Is this mature enough for production? Cite registry facts.",
+      "What are the main dependencies and who maintains it?",
+    ],
   },
   sessionNotes: {
     auto: "Call brief_auto once (or brief_plan + gather tools). Draft + brief_eval.",
@@ -67,6 +72,9 @@ export const FALLBACK_UI: PromptUi = {
     compare_missing: "Need two owner/name values, or use Auto with both in the goal.",
     corpus: "Use brief_corpus once, then brief_eval.",
     trending: "Use brief_github_trending (language/since), draft shortlist, then brief_eval.",
+    package_ready:
+      "Call brief_{{registry}}_package with name={{package}}, draft from registry evidence, then brief_eval.",
+    package_missing: "Pick npm or PyPI and enter a package name, or switch to Auto.",
   },
   demos: [
     {
@@ -84,11 +92,20 @@ export const FALLBACK_UI: PromptUi = {
       question: "Rank this week's trending TypeScript repos for a frontend team.",
     },
     {
-      label: "Auto · npm zod",
-      source: "auto" as SourceKind,
+      label: "Package · npm zod",
+      source: "package" as SourceKind,
       mode: "general" as BriefMode,
-      goal: "Brief the npm package zod for an engineer picking a schema lib.",
-      question: "Brief the npm package zod for an engineer picking a schema lib.",
+      packageRegistry: "npm",
+      packageName: "zod",
+      question: "Summarize latest version, license, and linked repo.",
+    },
+    {
+      label: "Package · PyPI httpx",
+      source: "package" as SourceKind,
+      mode: "general" as BriefMode,
+      packageRegistry: "pypi",
+      packageName: "httpx",
+      question: "Is this mature enough for production? Cite registry facts.",
     },
     {
       label: "Auto · Find form libs",

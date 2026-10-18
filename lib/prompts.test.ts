@@ -25,17 +25,21 @@ test("agent prompt includes router and route keys", () => {
   assert.match(prompt, /Route: github/);
   assert.match(prompt, /Route: compare/);
   assert.match(prompt, /Route: trending/);
+  assert.match(prompt, /Route: package/);
   assert.match(prompt, /Route: followup/);
   assert.match(prompt, /brief_github_trending/);
+  assert.match(prompt, /brief_npm_package/);
 });
 
 test("ui.json has auto demos and suggests", () => {
   const ui = loadUiConfig();
   assert.ok(ui.demos.some((d) => d.source === "auto"));
   assert.ok(ui.demos.some((d) => d.source === "trending"));
+  assert.ok(ui.demos.some((d) => d.source === "package"));
   assert.ok(ui.suggest.auto.length >= 1);
   assert.ok(ui.suggest.github.length >= 1);
   assert.ok(ui.suggest.trending.length >= 1);
+  assert.ok(ui.suggest.package.length >= 1);
 });
 
 test("start-brief template renders session fields", () => {

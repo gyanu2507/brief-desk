@@ -45,6 +45,29 @@ export const THEME_OPTIONS: { value: "light" | "dark" | "system"; label: string 
   { value: "dark", label: "Dark" },
 ];
 
+export const PACKAGE_REGISTRIES: { value: "npm" | "pypi"; label: string }[] = [
+  { value: "npm", label: "npm" },
+  { value: "pypi", label: "PyPI" },
+];
+
 export function isKnownLanguage(value: string): boolean {
   return TRENDING_LANGUAGES.some((o) => o.value === value);
+}
+
+/** Normalize a public package name for npm or PyPI. */
+export function normalizePackageName(
+  value: string,
+  registry: "npm" | "pypi",
+): string | null {
+  const t = value.trim().replace(/\s+/g, "");
+  if (!t) return null;
+  if (registry === "npm") {
+    if (/^@[A-Za-z0-9~-][A-Za-z0-9._~-]*\/[A-Za-z0-9~-][A-Za-z0-9._~-]*$/.test(t)) {
+      return t;
+    }
+    if (/^[A-Za-z0-9~-][A-Za-z0-9._~-]*$/.test(t)) return t;
+    return null;
+  }
+  if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(t)) return t;
+  return null;
 }

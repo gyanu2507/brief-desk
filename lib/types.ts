@@ -1,4 +1,12 @@
-export type SourceKind = "auto" | "github" | "url" | "compare" | "corpus" | "trending";
+export type SourceKind =
+  | "auto"
+  | "github"
+  | "url"
+  | "compare"
+  | "corpus"
+  | "trending"
+  | "package";
+export type PackageRegistry = "npm" | "pypi";
 export type BriefMode =
   | "overview"
   | "risks"
@@ -22,6 +30,8 @@ export type PromptUi = {
     repoB?: string;
     url?: string;
     goal?: string;
+    packageName?: string;
+    packageRegistry?: PackageRegistry;
     question: string;
   }[];
 };

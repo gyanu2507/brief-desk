@@ -50,6 +50,11 @@
       "Rank this week's trending TypeScript repos for a frontend team.",
       "Which trending repos look production-ready vs experimental?",
       "Shortlist 5 picks and why an eng manager should care."
+    ],
+    "package": [
+      "Summarize latest version, license, and linked repo.",
+      "Is this mature enough for production? Cite registry facts.",
+      "What are the main dependencies and who maintains it?"
     ]
   },
   "sessionNotes": {
@@ -61,7 +66,9 @@
     "compare_ready": "Use brief_orchestrate mode=compare repo={{repo}} repo_b={{repo_b}}, then brief_eval.",
     "compare_missing": "Need two owner/name values for compare, or use Auto with both in the goal.",
     "corpus": "Use brief_corpus once, then brief_eval.",
-    "trending": "Use brief_github_trending (language/since), draft shortlist, then brief_eval."
+    "trending": "Use brief_github_trending (language/since), draft shortlist, then brief_eval.",
+    "package_ready": "Call brief_{{registry}}_package with name={{package}}, draft from registry evidence, then brief_eval.",
+    "package_missing": "Pick npm or PyPI and enter a package name, or switch to Auto."
   },
   "demos": [
     {
@@ -79,18 +86,20 @@
       "question": "Rank this week's trending TypeScript repos for a frontend team."
     },
     {
-      "label": "Auto · Find form libs",
-      "source": "auto",
+      "label": "Package · npm zod",
+      "source": "package",
       "mode": "general",
-      "goal": "Find React form libraries with strong TypeScript support. Shortlist with stars and fit.",
-      "question": "Find React form libraries with strong TypeScript support. Shortlist with stars and fit."
+      "packageRegistry": "npm",
+      "packageName": "zod",
+      "question": "Summarize latest version, license, and linked repo."
     },
     {
-      "label": "Auto · Next vs Remix",
-      "source": "auto",
+      "label": "Package · PyPI httpx",
+      "source": "package",
       "mode": "general",
-      "goal": "Compare vercel/next.js vs remix-run/remix for a production SaaS frontend. Cite README facts.",
-      "question": "Compare vercel/next.js vs remix-run/remix for a production SaaS frontend. Cite README facts."
+      "packageRegistry": "pypi",
+      "packageName": "httpx",
+      "question": "Is this mature enough for production? Cite registry facts."
     },
     {
       "label": "Guided · React risks",

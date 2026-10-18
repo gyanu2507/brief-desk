@@ -2,13 +2,15 @@ import { callMcpTool } from "./mcp-client";
 import { fetchGithubTrending, isMcpToolMissing } from "./github-trending";
 
 export type BriefRunInput = {
-  source: "auto" | "github" | "url" | "compare" | "corpus" | "trending";
+  source: "auto" | "github" | "url" | "compare" | "corpus" | "trending" | "package";
   mode?: string;
   repo?: string | null;
   repoB?: string | null;
   url?: string | null;
   language?: string | null;
   since?: string | null;
+  packageName?: string | null;
+  packageRegistry?: "npm" | "pypi" | null;
   question: string;
   goal?: string | null;
 };
@@ -268,6 +270,31 @@ export async function runBriefPipeline(
           ms: Date.now() - t0,
         };
       }
+    } else if (input.source === "package") {
+      const registry = input.packageRegistry === "pypi" ? "pypi" : "npm";
+      const name = (input.packageName || "").trim();
+      if (!name) {
+        return {
+          ok: false,
+          answer: "",
+          steps,
+          error: "package name required",
+          ms: Date.now() - t0,
+        };
+      }
+      const tool = registry === "pypi" ? "brief_pypi_package" : "brief_npm_package";
+      pushStep(steps, tool, onStep);
+      const pkg = await callMcpTool(tool, { name });
+      if (!pkg.ok) {
+        return {
+          ok: false,
+          answer: "",
+          steps,
+          error: pkg.error || "package lookup failed",
+          ms: Date.now() - t0,
+        };
+      }
+      evidence = pkg.text;
     } else {
       pushStep(steps, "brief_orchestrate", onStep);
       const orch = await callMcpTool("brief_orchestrate", {

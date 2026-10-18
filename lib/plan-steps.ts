@@ -4,7 +4,11 @@ export type PlanStep = {
   state: "pending" | "active" | "done" | "error" | "skipped";
 };
 
-export function expectedSteps(source: string, hasBriefAuto: boolean): PlanStep[] {
+export function expectedSteps(
+  source: string,
+  hasBriefAuto: boolean,
+  opts?: { packageRegistry?: "npm" | "pypi" | null },
+): PlanStep[] {
   if (source === "auto") {
     if (hasBriefAuto) {
       return [
@@ -31,6 +35,15 @@ export function expectedSteps(source: string, hasBriefAuto: boolean): PlanStep[]
   if (source === "trending") {
     return [
       { id: "trend", label: "brief_github_trending", state: "pending" },
+      { id: "draft", label: "draft", state: "pending" },
+      { id: "eval", label: "brief_eval", state: "pending" },
+    ];
+  }
+  if (source === "package") {
+    const tool =
+      opts?.packageRegistry === "pypi" ? "brief_pypi_package" : "brief_npm_package";
+    return [
+      { id: "pkg", label: tool, state: "pending" },
       { id: "draft", label: "draft", state: "pending" },
       { id: "eval", label: "brief_eval", state: "pending" },
     ];

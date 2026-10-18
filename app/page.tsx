@@ -28,11 +28,13 @@ import { formatBriefMarkdown } from "../lib/format-brief";
 import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
 import {
   isKnownLanguage,
+  normalizePackageName,
+  PACKAGE_REGISTRIES,
   TRENDING_LANGUAGES,
   TRENDING_SINCE,
 } from "../lib/select-options";
 import { renderTemplate } from "../lib/template";
-import type { BriefMode, PromptUi, SourceKind } from "../lib/types";
+import type { BriefMode, PackageRegistry, PromptUi, SourceKind } from "../lib/types";
 
 function emitPlan(detail: { steps?: PlanStep[]; note?: string | null; active?: boolean }) {
   window.dispatchEvent(new CustomEvent("brief-desk-plan", { detail }));
@@ -52,6 +54,8 @@ type SavedBrief = {
   repoB?: string;
   url?: string;
   goal?: string;
+  packageName?: string;
+  packageRegistry?: PackageRegistry;
 };
 
 function normalizeRepo(value: string): string | null {
@@ -79,11 +83,21 @@ function sessionNote(
     repo: string | null;
     repoB: string | null;
     url: string | null;
+    packageName: string | null;
+    packageRegistry: PackageRegistry;
   },
 ): string {
   const notes = ui.sessionNotes;
   if (args.source === "auto") return notes.auto;
   if (args.source === "trending") return notes.trending || "Use brief_github_trending, then brief_eval.";
+  if (args.source === "package") {
+    return args.packageName
+      ? renderTemplate(notes.package_ready || "Call brief_{{registry}}_package name={{package}}.", {
+          registry: args.packageRegistry,
+          package: args.packageName,
+        })
+      : notes.package_missing || "Pick npm or PyPI and a package name.";
+  }
   if (args.source === "github") {
     return args.repo
       ? renderTemplate(notes.github_ready, { repo: args.repo, mode: args.mode })
@@ -117,6 +131,8 @@ export default function Page() {
   const [urlInput, setUrlInput] = useState("");
   const [languageInput, setLanguageInput] = useState("typescript");
   const [sinceInput, setSinceInput] = useState<"daily" | "weekly" | "monthly">("weekly");
+  const [packageRegistry, setPackageRegistry] = useState<PackageRegistry>("npm");
+  const [packageInput, setPackageInput] = useState("zod");
   const [trendingSeed, setTrendingSeed] = useState<TrendingRow[]>([]);
   const [goalInput, setGoalInput] = useState(DEFAULT_AUTO_GOAL);
   const [saved, setSaved] = useState<SavedBrief[]>([]);
@@ -141,6 +157,7 @@ export default function Page() {
   const repo = normalizeRepo(repoInput);
   const repoB = normalizeRepo(repoBInput);
   const url = normalizeUrl(urlInput);
+  const packageName = normalizePackageName(packageInput, packageRegistry);
   const goal = goalInput.trim();
 
   useEffect(() => {
@@ -161,6 +178,8 @@ export default function Page() {
         goal?: string;
         language?: string;
         since?: "daily" | "weekly" | "monthly";
+        packageRegistry?: PackageRegistry;
+        packageName?: string;
         saved?: SavedBrief[];
       };
       if (parsed.source) setSource(parsed.source);
@@ -174,6 +193,12 @@ export default function Page() {
       }
       if (parsed.since === "daily" || parsed.since === "weekly" || parsed.since === "monthly") {
         setSinceInput(parsed.since);
+      }
+      if (parsed.packageRegistry === "npm" || parsed.packageRegistry === "pypi") {
+        setPackageRegistry(parsed.packageRegistry);
+      }
+      if (typeof parsed.packageName === "string" && parsed.packageName.trim()) {
+        setPackageInput(parsed.packageName);
       }
       if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, 8));
     } catch {
@@ -198,13 +223,27 @@ export default function Page() {
           goal: goalInput,
           language: languageInput,
           since: sinceInput,
+          packageRegistry,
+          packageName: packageInput,
           saved,
         }),
       );
     } catch {
       // ignore
     }
-  }, [source, mode, repoInput, repoBInput, urlInput, goalInput, languageInput, sinceInput, saved]);
+  }, [
+    source,
+    mode,
+    repoInput,
+    repoBInput,
+    urlInput,
+    goalInput,
+    languageInput,
+    sinceInput,
+    packageRegistry,
+    packageInput,
+    saved,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -306,9 +345,22 @@ export default function Page() {
       : null;
 
   const contextValue = useMemo(() => {
-    const note = sessionNote(promptUi, { source, mode, repo, repoB, url });
+    const note = sessionNote(promptUi, {
+      source,
+      mode,
+      repo,
+      repoB,
+      url,
+      packageName,
+      packageRegistry,
+    });
     return {
-      loop: source === "auto" ? "auto→draft→eval" : "orchestrate→draft→eval",
+      loop:
+        source === "auto"
+          ? "auto→draft→eval"
+          : source === "package"
+            ? "package→draft→eval"
+            : "orchestrate→draft→eval",
       brief_mode: source === "compare" ? "compare" : mode,
       source_kind: source,
       route: source,
@@ -319,9 +371,24 @@ export default function Page() {
       repo: source === "auto" || source === "github" || source === "url" || source === "compare" ? repo : null,
       repo_b: source === "compare" || source === "auto" ? repoB : null,
       url: source === "url" || source === "auto" ? url : null,
+      package_name: source === "package" ? packageName : null,
+      package_registry: source === "package" ? packageRegistry : null,
       note,
     };
-  }, [promptUi, promptRoutes, source, mode, repo, repoB, url, goal, mcpTools, hasBriefAuto]);
+  }, [
+    promptUi,
+    promptRoutes,
+    source,
+    mode,
+    repo,
+    repoB,
+    url,
+    packageName,
+    packageRegistry,
+    goal,
+    mcpTools,
+    hasBriefAuto,
+  ]);
 
   useCopilotReadable({
     description: promptUi.readableDescription,
@@ -333,6 +400,7 @@ export default function Page() {
     (source === "github" && Boolean(repo)) ||
     (source === "url" && Boolean(url)) ||
     (source === "compare" && Boolean(repo) && Boolean(repoB)) ||
+    (source === "package" && Boolean(packageName)) ||
     source === "corpus" ||
     source === "trending";
 
@@ -352,7 +420,7 @@ export default function Page() {
     emitPlan({
       active: false,
       note: "Cancelled",
-      steps: expectedSteps(source, hasBriefAuto).map((s) => ({
+      steps: expectedSteps(source, hasBriefAuto, { packageRegistry }).map((s) => ({
         ...s,
         state: s.state === "done" ? "done" : "skipped",
       })),
@@ -360,7 +428,7 @@ export default function Page() {
     window.dispatchEvent(
       new CustomEvent("brief-desk-error", { detail: "Run cancelled." }),
     );
-  }, [source, hasBriefAuto, stopGeneration]);
+  }, [source, hasBriefAuto, packageRegistry, stopGeneration]);
 
   const runBrief = useCallback(
     async (
@@ -374,6 +442,8 @@ export default function Page() {
         goal: string | null;
         language: string | null;
         since: string | null;
+        packageName: string | null;
+        packageRegistry: PackageRegistry;
       }>,
     ) => {
       if (isLoading || pipelineBusy) return;
@@ -393,12 +463,21 @@ export default function Page() {
       const lang =
         override?.language !== undefined ? override.language : languageInput.trim() || null;
       const since = override?.since !== undefined ? override.since : sinceInput;
+      const reg =
+        override?.packageRegistry !== undefined ? override.packageRegistry : packageRegistry;
+      const pkg =
+        override?.packageName !== undefined
+          ? override.packageName
+            ? normalizePackageName(override.packageName, reg)
+            : null
+          : packageName;
       const g = (override?.goal !== undefined ? override.goal : question || goal)?.trim() || "";
       const sessionReady =
         (s === "auto" && g.length >= 8) ||
         (s === "github" && Boolean(r)) ||
         (s === "url" && Boolean(u)) ||
         (s === "compare" && Boolean(r) && Boolean(rB)) ||
+        (s === "package" && Boolean(pkg)) ||
         s === "corpus" ||
         s === "trending";
       if (!sessionReady) return;
@@ -410,7 +489,7 @@ export default function Page() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      const planned = expectedSteps(s, hasBriefAuto).map((step, i) =>
+      const planned = expectedSteps(s, hasBriefAuto, { packageRegistry: reg }).map((step, i) =>
         i === 0 ? { ...step, state: "active" as const } : step,
       );
       setPipelineBusy(true);
@@ -421,7 +500,9 @@ export default function Page() {
             : "brief_plan → orchestrate → eval…"
           : s === "trending"
             ? "trending → draft → eval…"
-            : "orchestrate → draft → eval…",
+            : s === "package"
+              ? `${reg} package → draft → eval…`
+              : "orchestrate → draft → eval…",
       );
       emitPlan({ steps: planned, note: "Gathering…", active: true });
 
@@ -439,6 +520,8 @@ export default function Page() {
             url: u,
             language: s === "trending" ? lang : undefined,
             since: s === "trending" ? since : undefined,
+            packageName: s === "package" ? pkg : undefined,
+            packageRegistry: s === "package" ? reg : undefined,
             question: s === "auto" || s === "trending" ? g || question : question,
             goal: s === "auto" || s === "trending" ? g || question : undefined,
           },
@@ -446,7 +529,7 @@ export default function Page() {
             signal: controller.signal,
             onStep: (step, stepsSoFar) => {
               setBusyNote(`${stepsSoFar.join(" → ")}…`);
-              const expected = expectedSteps(s, hasBriefAuto);
+              const expected = expectedSteps(s, hasBriefAuto, { packageRegistry: reg });
               const done = new Set(stepsSoFar);
               emitPlan({
                 active: true,
@@ -504,6 +587,8 @@ export default function Page() {
               repo: r,
               goal: g,
               question: userFacing,
+              packageName: pkg,
+              packageRegistry: reg,
             }),
             question: userFacing,
             answer: body.answer,
@@ -513,6 +598,8 @@ export default function Page() {
             repoB: rB || undefined,
             url: u || undefined,
             goal: s === "auto" || s === "trending" ? g || undefined : undefined,
+            packageName: s === "package" ? pkg || undefined : undefined,
+            packageRegistry: s === "package" ? reg : undefined,
             steps: body.steps,
             evalScore,
             ms: body.ms,
@@ -584,6 +671,8 @@ export default function Page() {
       hasBriefAuto,
       languageInput,
       sinceInput,
+      packageName,
+      packageRegistry,
       appendMessage,
     ],
   );
@@ -614,6 +703,8 @@ export default function Page() {
       if (entry.repoB) setRepoBInput(entry.repoB);
       if (entry.url) setUrlInput(entry.url);
       if (entry.goal) setGoalInput(entry.goal);
+      if (entry.packageRegistry) setPackageRegistry(entry.packageRegistry);
+      if (entry.packageName) setPackageInput(entry.packageName);
       setLastMarkdown(entry.markdown);
       await appendMessage(
         new TextMessage({
@@ -649,7 +740,9 @@ export default function Page() {
             ? url || "url"
             : source === "compare"
               ? `${repo} vs ${repoB}`
-              : "corpus sample";
+              : source === "package"
+                ? `${packageRegistry} · ${packageName || packageInput}`
+                : "corpus sample";
     setSaved((prev) =>
       [
         {
@@ -662,6 +755,8 @@ export default function Page() {
           repoB: repoB || undefined,
           url: url || undefined,
           goal: source === "auto" ? goal : undefined,
+          packageName: source === "package" ? packageName || undefined : undefined,
+          packageRegistry: source === "package" ? packageRegistry : undefined,
         },
         ...prev,
       ].slice(0, 8),
@@ -676,6 +771,10 @@ export default function Page() {
     setUrlInput(demo.url || "");
     if (demo.source === "auto") {
       setGoalInput(demo.goal || demo.question);
+    }
+    if (demo.source === "package") {
+      if (demo.packageRegistry) setPackageRegistry(demo.packageRegistry);
+      if (demo.packageName) setPackageInput(demo.packageName);
     }
   };
 
@@ -712,13 +811,15 @@ export default function Page() {
           ? `Ready. Trending ${
               TRENDING_LANGUAGES.find((o) => o.value === languageInput)?.label || "Any"
             } · ${TRENDING_SINCE.find((o) => o.value === sinceInput)?.label || sinceInput}.`
-          : source === "compare"
-            ? `Ready to compare ${repo} vs ${repoB}.`
-            : source === "url"
-              ? "Docs URL ready."
-              : source === "corpus"
-                ? "Corpus sample ready."
-                : `Repo ${repo} · ${mode} ready.`;
+          : source === "package"
+            ? `Ready. ${packageRegistry} · ${packageName}.`
+            : source === "compare"
+              ? `Ready to compare ${repo} vs ${repoB}.`
+              : source === "url"
+                ? "Docs URL ready."
+                : source === "corpus"
+                  ? "Corpus sample ready."
+                  : `Repo ${repo} · ${mode} ready.`;
 
   const startQuestion =
     source === "auto"
@@ -726,13 +827,15 @@ export default function Page() {
       : source === "trending"
         ? suggest[0] ||
           `Rank trending ${languageInput || "any"} repos (${sinceInput}) for an engineering team.`
-        : source === "compare"
-          ? suggest[0] || "Compare these repositories."
-          : source === "corpus"
-            ? suggest[0] || "Summarize the sample docs."
-            : source === "url"
-              ? suggest[0] || "Summarize this document for an engineer."
-              : defaultQ?.[mode] || "Give a concise engineering brief with citations.";
+        : source === "package"
+          ? suggest[0] || "Summarize latest version, license, and linked repo."
+          : source === "compare"
+            ? suggest[0] || "Compare these repositories."
+            : source === "corpus"
+              ? suggest[0] || "Summarize the sample docs."
+              : source === "url"
+                ? suggest[0] || "Summarize this document for an engineer."
+                : defaultQ?.[mode] || "Give a concise engineering brief with citations.";
 
   return (
     <TranscriptProvider>
@@ -762,8 +865,8 @@ export default function Page() {
             <ThemeToggle />
           </div>
           <p style={{ margin: "0 0 12px", color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>
-            One repo. GitHub, docs URLs, compare, or bundled corpus. Run agent drafts a brief with
-            citations.
+            GitHub, docs, compare, trending, npm/PyPI packages, or bundled corpus. Run agent drafts
+            a brief with citations.
           </p>
 
           <div
@@ -797,6 +900,7 @@ export default function Page() {
               [
                 ["auto", "Auto"],
                 ["trending", "Trending"],
+                ["package", "Package"],
                 ["github", "GitHub"],
                 ["url", "Docs"],
                 ["compare", "Compare"],
@@ -867,10 +971,38 @@ export default function Page() {
             </>
           ) : null}
 
+          {source === "package" ? (
+            <>
+              <p className="section-label">Registry</p>
+              <select
+                className="field field-select"
+                value={packageRegistry}
+                onChange={(e) => setPackageRegistry(e.target.value as PackageRegistry)}
+                aria-label="Package registry"
+              >
+                {PACKAGE_REGISTRIES.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="section-label">Package name</p>
+              <input
+                className="field"
+                value={packageInput}
+                onChange={(e) => setPackageInput(e.target.value)}
+                placeholder={packageRegistry === "npm" ? "zod or @scope/name" : "httpx"}
+                spellCheck={false}
+                aria-label="Package name"
+              />
+            </>
+          ) : null}
+
           {source !== "auto" &&
           source !== "compare" &&
           source !== "corpus" &&
-          source !== "trending" ? (
+          source !== "trending" &&
+          source !== "package" ? (
             <>
               <p className="section-label">Brief type</p>
               <select
@@ -973,7 +1105,9 @@ export default function Page() {
                 ? "Run agent"
                 : source === "trending"
                   ? "Rank trending"
-                  : "Start brief"}
+                  : source === "package"
+                    ? "Brief package"
+                    : "Start brief"}
           </button>
 
           {canCancel ? (
@@ -1022,6 +1156,8 @@ export default function Page() {
                     repoB: d.repoB || null,
                     url: d.url || null,
                     goal: d.goal || d.question,
+                    packageName: d.packageName || null,
+                    packageRegistry: d.packageRegistry,
                   });
                 }}
               >
@@ -1050,6 +1186,8 @@ export default function Page() {
                       setRepoBInput(s.repoB || "");
                       setUrlInput(s.url || (s.source === "url" ? s.label : ""));
                       if (s.goal) setGoalInput(s.goal);
+                      if (s.packageRegistry) setPackageRegistry(s.packageRegistry);
+                      if (s.packageName) setPackageInput(s.packageName);
                     }}
                   >
                     {s.source} · {s.label}

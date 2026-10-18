@@ -13,6 +13,14 @@ test("expectedSteps for corpus", () => {
   assert.equal(steps[0]?.label, "brief_corpus");
 });
 
+test("expectedSteps for package uses registry tool", () => {
+  assert.equal(expectedSteps("package", true, { packageRegistry: "npm" })[0]?.label, "brief_npm_package");
+  assert.equal(
+    expectedSteps("package", true, { packageRegistry: "pypi" })[0]?.label,
+    "brief_pypi_package",
+  );
+});
+
 test("stepsFromNames marks done", () => {
   const steps = stepsFromNames(["brief_auto", "draft", "brief_eval"]);
   assert.equal(steps.length, 3);
