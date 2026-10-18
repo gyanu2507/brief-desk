@@ -32,7 +32,11 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, max)}\n\n…[truncated]`;
 }
 
-function runCmd(command: string, args: string[]): Promise<string> {
+const CMD_TIMEOUT_MS = Number(process.env.BRIEF_CMD_TIMEOUT_MS || 8_000);
+const FETCH_TIMEOUT_MS = Number(process.env.BRIEF_FETCH_TIMEOUT_MS || 10_000);
+const MCP_VERSION = "0.5.2";
+
+function runCmd(command: string, args: string[], timeoutMs = CMD_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       env: process.env,
@@ -40,14 +44,22 @@ function runCmd(command: string, args: string[]): Promise<string> {
     });
     let out = "";
     let err = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
     child.stdout.on("data", (d) => {
       out += d.toString();
     });
     child.stderr.on("data", (d) => {
       err += d.toString();
     });
-    child.on("error", reject);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
     child.on("close", (code) => {
+      clearTimeout(timer);
       if (code === 0) resolve(out.trim() || "(empty)");
       else reject(new Error(err.trim() || `${command} exited ${code}`));
     });
@@ -62,7 +74,10 @@ async function githubApi(path: string, accept?: string): Promise<Response> {
   };
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   if (token) headers.Authorization = `Bearer ${token}`;
-  return fetch(`https://api.github.com${path}`, { headers });
+  return fetch(`https://api.github.com${path}`, {
+    headers,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
 }
 
 async function githubJson<T>(path: string): Promise<{ ok: true; data: T } | { ok: false; status: number; error: string }> {
@@ -289,9 +304,10 @@ async function fetchRepoAsk(repo: string, question: string): Promise<string> {
   const wantReadme = intent === "overview" || intent === "mixed" || intent === "code";
   const wantRoot = intent === "overview" || intent === "mixed" || intent === "code";
   const wantIssues = intent === "activity" || intent === "mixed";
-  const wantCode = intent === "code" || intent === "mixed";
+  // Skip code search by default for mixed (often rate-limited without token).
+  const wantCode = intent === "code";
   const wantReleases = intent === "activity" || intent === "mixed" || intent === "overview";
-  const readmeMax = intent === "overview" ? 3500 : intent === "code" ? 1800 : 2200;
+  const readmeMax = intent === "overview" ? 2800 : intent === "code" ? 1400 : 1600;
 
   const [readme, issues, code, root, releases] = await Promise.all([
     wantReadme ? fetchReadme(repo, readmeMax) : Promise.resolve(""),
@@ -382,6 +398,7 @@ async function fetchPublicUrl(url: string): Promise<{ url: string; text: string;
   const res = await fetch(parsed.toString(), {
     headers: { "User-Agent": "brief-desk-mcp", Accept: "text/plain, text/markdown, text/html, */*" },
     redirect: "follow",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`fetch failed (${res.status})`);
   const ctype = res.headers.get("content-type") || "";
@@ -511,7 +528,7 @@ async function runOrchestrate(args: {
 function createBriefMcpServer(): McpServer {
   const server = new McpServer({
     name: "brief-desk-mcp",
-    version: "0.5.1",
+    version: MCP_VERSION,
   });
 
   server.tool(
@@ -601,55 +618,24 @@ function createBriefMcpServer(): McpServer {
 
   server.tool(
     "brief_workspace",
-    "Deeper activity brief via workspace-brief CLI (issues/PRs/commits). Use after brief_repo_ask when you need a cited activity summary, or for the offline fixture sample.",
+    "DEPRECATED for the agent loop. Always skipped. Use brief_orchestrate or brief_auto instead. Do not call this tool.",
     {
-      question: z.string().describe("Plain-English question about the workspace"),
-      repo: z
-        .string()
-        .optional()
-        .describe("owner/name for live GitHub (also accepts https://github.com/owner/name)"),
-      source: z
-        .enum(["fixture", "github"])
-        .optional()
-        .describe("github = live API (default when repo is set); fixture = offline sample"),
+      question: z.string().describe("Ignored. Tool is deprecated."),
+      repo: z.string().optional(),
+      source: z.enum(["fixture", "github"]).optional(),
     },
-    async ({ question, repo, source }) => {
-      const target = normalizeGithubRepo(repo || process.env.BRIEF_REPO);
-      const src =
-        source ||
-        (target ? "github" : undefined) ||
-        process.env.BRIEF_SOURCE ||
-        "fixture";
-      const args = ["--json", "--source", src, question];
-      if (src === "github") {
-        if (!target) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "repo is required for source=github (pass owner/name)",
-              },
-            ],
-            isError: true,
-          };
-        }
-        args.splice(3, 0, "--repo", target);
-      }
-      try {
-        const text = await runCmd("brief", args);
-        return { content: [{ type: "text", text }] };
-      } catch (e) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `brief_workspace failed: ${(e as Error).message}. Install workspace-brief and set GITHUB_TOKEN on the MCP host for higher rate limits.`,
-            },
-          ],
-          isError: true,
-        };
-      }
-    },
+    async () => ({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            skipped: true,
+            reason: "brief_workspace is banned in the agent loop (slow/flaky).",
+            next: "Use gather already returned by brief_auto or brief_orchestrate. Draft now, then brief_eval.",
+          }),
+        },
+      ],
+    }),
   );
 
   server.tool(
@@ -744,9 +730,15 @@ function createBriefMcpServer(): McpServer {
           url: invented.url || undefined,
           mode: invented.mode,
         });
+        let gatherObj: unknown = gather;
+        try {
+          gatherObj = JSON.parse(gather);
+        } catch {
+          gatherObj = { raw: truncate(gather, 8000) };
+        }
         const packed = {
           ...plan,
-          gather: JSON.parse(gather),
+          gather: gatherObj,
           guidance:
             "Draft the user-facing brief NOW from gather only. Address each subgoal. Cite paths/#issue/URLs. Then call brief_eval. Do NOT call brief_workspace, brief_fetch_url, or brief_orchestrate again.",
         };
@@ -872,7 +864,10 @@ app.get("/health", (_req, res) => {
     ok: true,
     mcp: "/mcp",
     service: "brief-desk-mcp",
-    version: "0.5.1",
+    version: MCP_VERSION,
+    ready: true,
+    banned_tools: ["brief_workspace"],
+    preferred_auto: "brief_auto",
     tools: [
       "brief_auto",
       "brief_plan",

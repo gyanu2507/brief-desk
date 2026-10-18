@@ -84,7 +84,7 @@ function routeForTool(name: string): string {
     case "brief_repo_file":
       return "MCP → GitHub Contents API";
     case "brief_workspace":
-      return "MCP → workspace-brief CLI → GitHub issues/PRs";
+      return "MCP → brief_workspace (banned / skipped)";
     case "brief_corpus":
       return "MCP → corpus-brief (local docs)";
     case "stack_info":

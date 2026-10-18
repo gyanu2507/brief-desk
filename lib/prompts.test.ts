@@ -19,6 +19,8 @@ test("agent prompt includes router and route keys", () => {
   const prompt = loadAgentSystemPrompt();
   assert.match(prompt, /brief_auto/);
   assert.match(prompt, /brief_eval/);
+  assert.match(prompt, /brief_workspace/);
+  assert.match(prompt, /Hard bans/);
   assert.match(prompt, /Route selection/);
   assert.match(prompt, /Route: auto/);
   assert.match(prompt, /Route: github/);
@@ -57,4 +59,5 @@ test("auto-brief template renders free-form goal", () => {
   assert.match(content, /source=auto/);
   assert.match(content, /Goal: Brief facebook\/react risks/);
   assert.match(content, /brief_auto/);
+  assert.match(content, /Banned: brief_workspace/);
 });

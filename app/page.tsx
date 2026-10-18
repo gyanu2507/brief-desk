@@ -5,31 +5,13 @@ import { useCopilotChatInternal, useCopilotReadable } from "@copilotkit/react-co
 import { CopilotChat } from "@copilotkit/react-ui";
 import { AgentLog } from "./AgentLog";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
+import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { renderTemplate } from "../lib/template";
+import type { BriefMode, PromptUi, SourceKind } from "../lib/types";
 
-const STORE_KEY = "brief-desk-v2";
+const STORE_KEY = "brief-desk-v3";
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-
-type SourceKind = "auto" | "github" | "url" | "compare" | "corpus";
-type BriefMode = "overview" | "risks" | "architecture" | "activity" | "code" | "docs" | "general";
-
-type PromptUi = {
-  readableDescription: string;
-  modes: { id: BriefMode; label: string }[];
-  defaultQuestions: Record<BriefMode, string>;
-  suggest: Record<SourceKind, string[]>;
-  sessionNotes: Record<string, string>;
-  demos: {
-    label: string;
-    source: SourceKind;
-    mode: BriefMode;
-    repo?: string;
-    repoB?: string;
-    url?: string;
-    goal?: string;
-    question: string;
-  }[];
-};
+const RUN_WATCHDOG_MS = 90_000;
 
 type SavedBrief = {
   id: string;
@@ -115,15 +97,21 @@ export default function Page() {
   const [repoInput, setRepoInput] = useState("");
   const [repoBInput, setRepoBInput] = useState("");
   const [urlInput, setUrlInput] = useState("");
-  const [goalInput, setGoalInput] = useState(
-    "Brief facebook/react risks for an eng manager. Invent the plan and run it.",
-  );
+  const [goalInput, setGoalInput] = useState(DEFAULT_AUTO_GOAL);
   const [saved, setSaved] = useState<SavedBrief[]>([]);
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
   const [mcpVersion, setMcpVersion] = useState<string>("");
+  const [mcpTools, setMcpTools] = useState<string[]>([]);
   const [busyNote, setBusyNote] = useState<string | null>(null);
-  const [promptUi, setPromptUi] = useState<PromptUi | null>(null);
-  const [promptRoutes, setPromptRoutes] = useState<string[]>([]);
+  const [promptUi, setPromptUi] = useState<PromptUi>(FALLBACK_UI);
+  const [promptRoutes, setPromptRoutes] = useState<string[]>([
+    "auto",
+    "compare",
+    "corpus",
+    "followup",
+    "github",
+    "url",
+  ]);
 
   const repo = normalizeRepo(repoInput);
   const repoB = normalizeRepo(repoBInput);
@@ -183,17 +171,25 @@ export default function Page() {
     const ping = async () => {
       try {
         const res = await fetch("/api/mcp-health", { cache: "no-store" });
-        const body = (await res.json()) as { ok?: boolean; version?: string };
+        const body = (await res.json()) as {
+          ok?: boolean;
+          version?: string;
+          tools?: string[];
+        };
         if (!cancelled) {
           setMcpOk(Boolean(body.ok));
           setMcpVersion(typeof body.version === "string" ? body.version : "");
+          setMcpTools(Array.isArray(body.tools) ? body.tools : []);
         }
       } catch {
-        if (!cancelled) setMcpOk(false);
+        if (!cancelled) {
+          setMcpOk(false);
+          setMcpTools([]);
+        }
       }
     };
     void ping();
-    const id = window.setInterval(ping, 30_000);
+    const id = window.setInterval(ping, 20_000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
@@ -214,7 +210,7 @@ export default function Page() {
         setPromptUi(body.ui);
         setPromptRoutes(Array.isArray(body.routes) ? body.routes : []);
       } catch {
-        // UI falls back to empty demos until prompts API is up
+        // Keep FALLBACK_UI
       }
     })();
     return () => {
@@ -222,28 +218,44 @@ export default function Page() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isLoading) return;
+    const id = window.setTimeout(() => {
+      window.dispatchEvent(
+        new CustomEvent("brief-desk-error", {
+          detail:
+            "Run timed out (~90s) without a final answer. Retry once. Prefer Auto demos. Avoid typing custom tool names.",
+        }),
+      );
+    }, RUN_WATCHDOG_MS);
+    return () => window.clearTimeout(id);
+  }, [isLoading]);
+
+  const hasBriefAuto = mcpTools.includes("brief_auto");
+  const hasOrchestrate = mcpTools.includes("brief_orchestrate");
+  const mcpReady = mcpOk === true && hasOrchestrate;
+
   const contextValue = useMemo(() => {
-    const note = promptUi
-      ? sessionNote(promptUi, { source, mode, repo, repoB, url })
-      : "In auto mode call brief_plan first, then execute.";
+    const note = sessionNote(promptUi, { source, mode, repo, repoB, url });
     return {
-      loop: source === "auto" ? "plan→orchestrate→draft→eval" : "orchestrate→draft→eval",
+      loop: source === "auto" ? "auto→draft→eval" : "orchestrate→draft→eval",
       brief_mode: source === "compare" ? "compare" : mode,
       source_kind: source,
       route: source,
       prompt_routes: promptRoutes,
+      mcp_tools: mcpTools,
+      has_brief_auto: hasBriefAuto,
+      banned_tools: ["brief_workspace"],
       goal: source === "auto" ? goal : null,
       repo: source === "auto" || source === "github" || source === "url" || source === "compare" ? repo : null,
       repo_b: source === "compare" || source === "auto" ? repoB : null,
       url: source === "url" || source === "auto" ? url : null,
       note,
     };
-  }, [promptUi, promptRoutes, source, mode, repo, repoB, url, goal]);
+  }, [promptUi, promptRoutes, source, mode, repo, repoB, url, goal, mcpTools, hasBriefAuto]);
 
   useCopilotReadable({
-    description:
-      promptUi?.readableDescription ||
-      "Active brief-desk session. In auto mode call brief_plan first. Do not invent tool names.",
+    description: promptUi.readableDescription,
     value: contextValue,
   });
 
@@ -253,6 +265,8 @@ export default function Page() {
     (source === "url" && Boolean(url)) ||
     (source === "compare" && Boolean(repo) && Boolean(repoB)) ||
     source === "corpus";
+
+  const canRun = ready && mcpReady && !isLoading;
 
   const runBrief = useCallback(
     async (
@@ -267,6 +281,14 @@ export default function Page() {
       }>,
     ) => {
       if (isLoading) return;
+      if (mcpOk !== true || !hasOrchestrate) {
+        window.dispatchEvent(
+          new CustomEvent("brief-desk-error", {
+            detail: "MCP is offline or missing brief_orchestrate. Redeploy Render, then retry.",
+          }),
+        );
+        return;
+      }
       const s = override?.source ?? source;
       const m = override?.mode ?? mode;
       const r = override?.repo !== undefined ? override.repo : repo;
@@ -281,7 +303,13 @@ export default function Page() {
         s === "corpus";
       if (!sessionReady) return;
 
-      setBusyNote(s === "auto" ? "brief_auto → draft → eval…" : "Running orchestrate → eval…");
+      setBusyNote(
+        s === "auto"
+          ? hasBriefAuto
+            ? "brief_auto → draft → eval…"
+            : "brief_plan → orchestrate → eval…"
+          : "orchestrate → eval…",
+      );
       try {
         const res = await fetch("/api/prompts", {
           method: "POST",
@@ -312,7 +340,19 @@ export default function Page() {
         setBusyNote(null);
       }
     },
-    [isLoading, sendMessage, source, mode, repo, repoB, url, goal],
+    [
+      isLoading,
+      sendMessage,
+      source,
+      mode,
+      repo,
+      repoB,
+      url,
+      goal,
+      mcpOk,
+      hasOrchestrate,
+      hasBriefAuto,
+    ],
   );
 
   const pinSession = () => {
@@ -356,24 +396,39 @@ export default function Page() {
     }
   };
 
-  const suggest = promptUi?.suggest[source] ?? [];
-  const modes = promptUi?.modes ?? [];
-  const demos = promptUi?.demos ?? [];
-  const defaultQ = promptUi?.defaultQuestions;
+  const suggest = promptUi.suggest[source] ?? [];
+  const modes = promptUi.modes ?? [];
+  const demos = promptUi.demos ?? [];
+  const defaultQ = promptUi.defaultQuestions;
 
-  const chatHint = !ready
-    ? source === "auto"
-      ? "Write a goal (include owner/name or a docs URL). Auto invents the plan and runs it."
-      : "Fill the left panel, click Start brief, or pick a demo."
-    : source === "auto"
-      ? "Auto mode ready. Start brief runs brief_plan → orchestrate → eval."
-      : source === "compare"
-        ? `Ready to compare ${repo} vs ${repoB}. Use Start brief or ask in chat.`
-        : source === "url"
-          ? `Docs URL ready. Start brief or ask what to extract.`
-          : source === "corpus"
-            ? "Corpus sample ready. Start brief or ask about the bundled docs."
-            : `Repo ${repo} · ${mode}. Start brief or type a follow-up.`;
+  const mcpLabel =
+    mcpOk === null
+      ? "MCP checking…"
+      : !mcpOk
+        ? "MCP offline · Manual Deploy on Render"
+        : !hasOrchestrate
+          ? `MCP v${mcpVersion || "?"} · missing tools`
+          : hasBriefAuto
+            ? `MCP online · v${mcpVersion} · brief_auto`
+            : `MCP online · v${mcpVersion} · compat mode`;
+
+  const chatHint = !mcpReady
+    ? "Waiting for MCP… if this sticks, Manual Deploy brief-desk on Render."
+    : !ready
+      ? source === "auto"
+        ? "Write a goal with owner/name or https://… then Run agent."
+        : "Fill the left panel, click Start brief, or pick a demo."
+      : source === "auto"
+        ? hasBriefAuto
+          ? "Ready. Run agent → brief_auto → draft → eval."
+          : "Ready (compat). Run agent → brief_plan → orchestrate → eval."
+        : source === "compare"
+          ? `Ready to compare ${repo} vs ${repoB}.`
+          : source === "url"
+            ? "Docs URL ready."
+            : source === "corpus"
+              ? "Corpus sample ready."
+              : `Repo ${repo} · ${mode} ready.`;
 
   return (
     <TranscriptProvider>
@@ -414,7 +469,7 @@ export default function Page() {
               gap: 8,
               marginBottom: 14,
               fontSize: 12,
-              color: mcpOk === null ? "var(--muted)" : mcpOk ? "#15803d" : "#b91c1c",
+              color: mcpOk === null ? "var(--muted)" : mcpReady ? "#15803d" : "#b91c1c",
             }}
           >
             <span
@@ -422,15 +477,10 @@ export default function Page() {
                 width: 8,
                 height: 8,
                 borderRadius: 999,
-                background: mcpOk === null ? "#94a3b8" : mcpOk ? "#22c55e" : "#ef4444",
+                background: mcpOk === null ? "#94a3b8" : mcpReady ? "#22c55e" : "#ef4444",
               }}
             />
-            MCP{" "}
-            {mcpOk === null
-              ? "checking…"
-              : mcpOk
-                ? `online${mcpVersion ? ` · v${mcpVersion}` : ""}`
-                : "offline · redeploy Render"}
+            {mcpLabel}
           </div>
 
           {promptRoutes.length ? (
@@ -445,7 +495,7 @@ export default function Page() {
               <button
                 key={d.label}
                 type="button"
-                disabled={isLoading || !promptUi}
+                disabled={!mcpReady || isLoading}
                 onClick={() => {
                   loadDemo(d);
                   void runBrief(d.goal || d.question, {
@@ -603,20 +653,18 @@ export default function Page() {
                 source === "auto" ? { goal } : undefined,
               )
             }
-            disabled={!ready || isLoading || mcpOk === false || !promptUi}
+            disabled={!canRun}
             style={{
               marginTop: 14,
               width: "100%",
               padding: "11px 12px",
               borderRadius: 8,
               border: "none",
-              background:
-                !ready || isLoading || mcpOk === false || !promptUi ? "#cbd5e1" : "var(--accent)",
+              background: !canRun ? "#cbd5e1" : "var(--accent)",
               color: "#fff",
               fontSize: 14,
               fontWeight: 600,
-              cursor:
-                !ready || isLoading || mcpOk === false || !promptUi ? "not-allowed" : "pointer",
+              cursor: !canRun ? "not-allowed" : "pointer",
             }}
           >
             {isLoading || busyNote ? "Running…" : source === "auto" ? "Run agent" : "Start brief"}
@@ -647,7 +695,7 @@ export default function Page() {
               <button
                 key={s}
                 type="button"
-                disabled={isLoading || !promptUi || (source !== "auto" && !ready)}
+                disabled={!mcpReady || isLoading || (source !== "auto" && !ready)}
                 onClick={() => {
                   if (source === "auto") {
                     setGoalInput(s);
@@ -660,7 +708,7 @@ export default function Page() {
                   ...chipStyle,
                   textAlign: "left",
                   color:
-                    isLoading || !promptUi || (source !== "auto" && !ready)
+                    !mcpReady || isLoading || (source !== "auto" && !ready)
                       ? "#94a3b8"
                       : "var(--ink)",
                 }}

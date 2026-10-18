@@ -1,10 +1,8 @@
 # Route selection
 
-Read the active session (source_kind, brief_mode, repo, repo_b, url, goal) from context.
+Read session fields: source_kind, brief_mode, repo, repo_b, url, goal.
 
-Pick exactly one route and follow its instructions:
-
-| source_kind | Route file key |
+| source_kind | Route |
 |---|---|
 | auto | auto |
 | github | github |
@@ -12,8 +10,8 @@ Pick exactly one route and follow its instructions:
 | compare | compare |
 | corpus | corpus |
 
-If source_kind is missing or the user pastes a free-form goal with repos/URLs and no panel fields, prefer `auto`.
+If the user pastes a free-form goal with owner/name or https URLs, use `auto`.
 
-Tiny follow-ups (single file, one fact already in chat, yes/no clarifications) may use the `followup` route instead of re-running the full plan loop.
+Tiny yes/no clarifications about the previous answer → `followup`.
 
-Never skip `brief_eval` after a fresh multi-step draft unless the user only asked a one-line clarification about the previous answer.
+Never skip `brief_eval` after a fresh multi-step draft.

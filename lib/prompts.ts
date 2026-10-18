@@ -1,38 +1,12 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { renderTemplate } from "./template";
+import type { BriefMode, PromptUi, SourceKind } from "./types";
 
 export { renderTemplate } from "./template";
+export type { BriefMode, PromptUi, SourceKind } from "./types";
 
 const PROMPTS_ROOT = path.join(process.cwd(), "prompts");
-
-export type SourceKind = "auto" | "github" | "url" | "compare" | "corpus";
-export type BriefMode =
-  | "overview"
-  | "risks"
-  | "architecture"
-  | "activity"
-  | "code"
-  | "docs"
-  | "general";
-
-export type PromptUi = {
-  readableDescription: string;
-  modes: { id: BriefMode; label: string }[];
-  defaultQuestions: Record<BriefMode, string>;
-  suggest: Record<SourceKind, string[]>;
-  sessionNotes: Record<string, string>;
-  demos: {
-    label: string;
-    source: SourceKind;
-    mode: BriefMode;
-    repo?: string;
-    repoB?: string;
-    url?: string;
-    goal?: string;
-    question: string;
-  }[];
-};
 
 function readPrompt(rel: string): string {
   return readFileSync(path.join(PROMPTS_ROOT, rel), "utf8").trim();
