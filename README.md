@@ -78,6 +78,8 @@ curl -s -X POST http://localhost:3000/api/brief-run \
   -d '{"source":"auto","goal":"Brief facebook/react risks","question":"Brief facebook/react risks"}'
 ```
 
+CI runs the same suite on every push/PR (`.github/workflows/ci.yml`).
+
 **Render:** deploy with the root `Dockerfile` (Python MCP). After deploy, `/health` should show `"runtime":"python"` and `"version":"0.9.0"`.
 
 **Vercel:** point `MCP_URL` at that Render `/mcp` endpoint.

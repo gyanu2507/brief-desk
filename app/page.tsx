@@ -10,6 +10,7 @@ import { PlanBoard } from "./PlanBoard";
 import { RepoCombobox } from "./RepoCombobox";
 import { ThemeToggle } from "./theme";
 import { ToolCards } from "./ToolCards";
+import { TrendingPicker, type TrendingRow } from "./TrendingPicker";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
@@ -105,6 +106,7 @@ export default function Page() {
   const [urlInput, setUrlInput] = useState("");
   const [languageInput, setLanguageInput] = useState("typescript");
   const [sinceInput, setSinceInput] = useState<"daily" | "weekly" | "monthly">("weekly");
+  const [trendingSeed, setTrendingSeed] = useState<TrendingRow[]>([]);
   const [goalInput, setGoalInput] = useState(DEFAULT_AUTO_GOAL);
   const [saved, setSaved] = useState<SavedBrief[]>([]);
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
@@ -428,9 +430,13 @@ export default function Page() {
           error?: string;
           ms?: number;
           eval?: { pass?: boolean; scores?: { overall?: number } };
+          repos?: TrendingRow[];
         };
         if (!res.ok || !body.ok || !body.answer) {
           throw new Error(body.error || "brief-run failed");
+        }
+        if (Array.isArray(body.repos) && body.repos.length) {
+          setTrendingSeed(body.repos);
         }
         const score =
           typeof body.eval?.scores?.overall === "number"
@@ -452,7 +458,7 @@ export default function Page() {
         });
         window.dispatchEvent(
           new CustomEvent("brief-desk-answer", {
-            detail: { answer: body.answer, steps: body.steps, ms: body.ms },
+            detail: { answer: body.answer, steps: body.steps, ms: body.ms, repos: body.repos },
           }),
         );
       } catch (e) {
@@ -504,6 +510,24 @@ export default function Page() {
       sinceInput,
       appendMessage,
     ],
+  );
+
+  const deepBriefFromTrending = useCallback(
+    (repoName: string, kind: "overview" | "risks") => {
+      setSource("github");
+      setMode(kind);
+      setRepoInput(repoName);
+      const question =
+        kind === "risks"
+          ? "What are the biggest risks and open issues right now?"
+          : "What are the main features and who is this for?";
+      void runBrief(question, {
+        source: "github",
+        mode: kind,
+        repo: repoName,
+      });
+    },
+    [runBrief],
   );
 
   const pinSession = () => {
@@ -702,6 +726,13 @@ export default function Page() {
                   </option>
                 ))}
               </select>
+              <TrendingPicker
+                language={languageInput}
+                since={sinceInput}
+                seedRepos={trendingSeed}
+                disabled={mcpBlocked || pipelineBusy || isLoading}
+                onDeepBrief={deepBriefFromTrending}
+              />
             </>
           ) : null}
 

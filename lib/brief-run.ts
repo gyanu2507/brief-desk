@@ -12,6 +12,15 @@ export type BriefRunInput = {
   goal?: string | null;
 };
 
+export type BriefRunRepoHit = {
+  repo: string;
+  description?: string | null;
+  stars_delta?: string | null;
+  stars_period?: string | null;
+  language?: string | null;
+  url?: string;
+};
+
 export type BriefRunResult = {
   ok: boolean;
   answer: string;
@@ -19,7 +28,37 @@ export type BriefRunResult = {
   eval?: unknown;
   error?: string;
   ms: number;
+  /** Structured hits when source was trending (or auto invent trending). */
+  repos?: BriefRunRepoHit[];
 };
+
+function extractReposFromEvidence(evidence: string): BriefRunRepoHit[] {
+  try {
+    const parsed = JSON.parse(evidence) as {
+      repos?: BriefRunRepoHit[];
+      gather?: { trending?: { repos?: BriefRunRepoHit[] }; search?: { repos?: Array<{ repo?: string; description?: string | null }> } };
+    };
+    if (Array.isArray(parsed.repos)) {
+      return parsed.repos.filter((r) => typeof r.repo === "string" && r.repo.includes("/"));
+    }
+    const fromTrend = parsed.gather?.trending?.repos;
+    if (Array.isArray(fromTrend)) {
+      return fromTrend.filter((r) => typeof r.repo === "string" && r.repo.includes("/"));
+    }
+    const fromSearch = parsed.gather?.search?.repos;
+    if (Array.isArray(fromSearch)) {
+      return fromSearch
+        .filter((r) => typeof r.repo === "string" && r.repo.includes("/"))
+        .map((r) => ({
+          repo: r.repo as string,
+          description: r.description ?? null,
+        }));
+    }
+  } catch {
+    // not JSON
+  }
+  return [];
+}
 
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
@@ -243,12 +282,14 @@ export async function runBriefPipeline(input: BriefRunInput): Promise<BriefRunRe
       );
     }
 
+    const repos = extractReposFromEvidence(evidence);
     return {
       ok: true,
       answer: draft,
       steps,
       eval: evalObj,
       ms: Date.now() - t0,
+      ...(repos.length ? { repos } : {}),
     };
   } catch (e) {
     return {
