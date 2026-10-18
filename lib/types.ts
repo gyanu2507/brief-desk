@@ -5,7 +5,8 @@ export type SourceKind =
   | "compare"
   | "corpus"
   | "trending"
-  | "package";
+  | "package"
+  | "releases";
 export type PackageRegistry = "npm" | "pypi";
 export type BriefMode =
   | "overview"
@@ -32,6 +33,8 @@ export type PromptUi = {
     goal?: string;
     packageName?: string;
     packageRegistry?: PackageRegistry;
+    tagA?: string;
+    tagB?: string;
     question: string;
   }[];
 };

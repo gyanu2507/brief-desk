@@ -21,6 +21,10 @@ test("expectedSteps for package uses registry tool", () => {
   );
 });
 
+test("expectedSteps for releases uses release diff", () => {
+  assert.equal(expectedSteps("releases", true)[0]?.label, "brief_repo_release_diff");
+});
+
 test("stepsFromNames marks done", () => {
   const steps = stepsFromNames(["brief_auto", "draft", "brief_eval"]);
   assert.equal(steps.length, 3);

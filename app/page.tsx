@@ -9,6 +9,7 @@ import { BrandMark } from "./BrandMark";
 import { BriefExportBar } from "./BriefExportBar";
 import { BriefHistory } from "./BriefHistory";
 import { PlanBoard } from "./PlanBoard";
+import { ReleaseDiffPanel } from "./ReleaseDiffPanel";
 import { RepoCombobox } from "./RepoCombobox";
 import { ThemeToggle } from "./theme";
 import { ToolCards } from "./ToolCards";
@@ -56,6 +57,8 @@ type SavedBrief = {
   goal?: string;
   packageName?: string;
   packageRegistry?: PackageRegistry;
+  tagA?: string;
+  tagB?: string;
 };
 
 function normalizeRepo(value: string): string | null {
@@ -85,6 +88,8 @@ function sessionNote(
     url: string | null;
     packageName: string | null;
     packageRegistry: PackageRegistry;
+    tagA: string | null;
+    tagB: string | null;
   },
 ): string {
   const notes = ui.sessionNotes;
@@ -97,6 +102,15 @@ function sessionNote(
           package: args.packageName,
         })
       : notes.package_missing || "Pick npm or PyPI and a package name.";
+  }
+  if (args.source === "releases") {
+    return args.repo && args.tagA && args.tagB
+      ? renderTemplate(
+          notes.releases_ready ||
+            "Call brief_repo_release_diff repo={{repo}} tag_a={{tag_a}} tag_b={{tag_b}}.",
+          { repo: args.repo, tag_a: args.tagA, tag_b: args.tagB },
+        )
+      : notes.releases_missing || "Pick a repo and two release tags.";
   }
   if (args.source === "github") {
     return args.repo
@@ -133,6 +147,8 @@ export default function Page() {
   const [sinceInput, setSinceInput] = useState<"daily" | "weekly" | "monthly">("weekly");
   const [packageRegistry, setPackageRegistry] = useState<PackageRegistry>("npm");
   const [packageInput, setPackageInput] = useState("zod");
+  const [tagA, setTagA] = useState("");
+  const [tagB, setTagB] = useState("");
   const [trendingSeed, setTrendingSeed] = useState<TrendingRow[]>([]);
   const [goalInput, setGoalInput] = useState(DEFAULT_AUTO_GOAL);
   const [saved, setSaved] = useState<SavedBrief[]>([]);
@@ -180,6 +196,8 @@ export default function Page() {
         since?: "daily" | "weekly" | "monthly";
         packageRegistry?: PackageRegistry;
         packageName?: string;
+        tagA?: string;
+        tagB?: string;
         saved?: SavedBrief[];
       };
       if (parsed.source) setSource(parsed.source);
@@ -200,6 +218,8 @@ export default function Page() {
       if (typeof parsed.packageName === "string" && parsed.packageName.trim()) {
         setPackageInput(parsed.packageName);
       }
+      if (typeof parsed.tagA === "string") setTagA(parsed.tagA);
+      if (typeof parsed.tagB === "string") setTagB(parsed.tagB);
       if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, 8));
     } catch {
       // ignore
@@ -225,6 +245,8 @@ export default function Page() {
           since: sinceInput,
           packageRegistry,
           packageName: packageInput,
+          tagA,
+          tagB,
           saved,
         }),
       );
@@ -242,6 +264,8 @@ export default function Page() {
     sinceInput,
     packageRegistry,
     packageInput,
+    tagA,
+    tagB,
     saved,
   ]);
 
@@ -353,6 +377,8 @@ export default function Page() {
       url,
       packageName,
       packageRegistry,
+      tagA: tagA.trim() || null,
+      tagB: tagB.trim() || null,
     });
     return {
       loop:
@@ -360,7 +386,9 @@ export default function Page() {
           ? "auto→draft→eval"
           : source === "package"
             ? "package→draft→eval"
-            : "orchestrate→draft→eval",
+            : source === "releases"
+              ? "release_diff→draft→eval"
+              : "orchestrate→draft→eval",
       brief_mode: source === "compare" ? "compare" : mode,
       source_kind: source,
       route: source,
@@ -368,11 +396,20 @@ export default function Page() {
       mcp_tools: mcpTools,
       has_brief_auto: hasBriefAuto,
       goal: source === "auto" ? goal : null,
-      repo: source === "auto" || source === "github" || source === "url" || source === "compare" ? repo : null,
+      repo:
+        source === "auto" ||
+        source === "github" ||
+        source === "url" ||
+        source === "compare" ||
+        source === "releases"
+          ? repo
+          : null,
       repo_b: source === "compare" || source === "auto" ? repoB : null,
       url: source === "url" || source === "auto" ? url : null,
       package_name: source === "package" ? packageName : null,
       package_registry: source === "package" ? packageRegistry : null,
+      tag_a: source === "releases" ? tagA.trim() || null : null,
+      tag_b: source === "releases" ? tagB.trim() || null : null,
       note,
     };
   }, [
@@ -385,6 +422,8 @@ export default function Page() {
     url,
     packageName,
     packageRegistry,
+    tagA,
+    tagB,
     goal,
     mcpTools,
     hasBriefAuto,
@@ -401,6 +440,11 @@ export default function Page() {
     (source === "url" && Boolean(url)) ||
     (source === "compare" && Boolean(repo) && Boolean(repoB)) ||
     (source === "package" && Boolean(packageName)) ||
+    (source === "releases" &&
+      Boolean(repo) &&
+      Boolean(tagA.trim()) &&
+      Boolean(tagB.trim()) &&
+      tagA.trim() !== tagB.trim()) ||
     source === "corpus" ||
     source === "trending";
 
@@ -444,6 +488,8 @@ export default function Page() {
         since: string | null;
         packageName: string | null;
         packageRegistry: PackageRegistry;
+        tagA: string | null;
+        tagB: string | null;
       }>,
     ) => {
       if (isLoading || pipelineBusy) return;
@@ -471,6 +517,8 @@ export default function Page() {
             ? normalizePackageName(override.packageName, reg)
             : null
           : packageName;
+      const tA = (override?.tagA !== undefined ? override.tagA : tagA)?.trim() || "";
+      const tB = (override?.tagB !== undefined ? override.tagB : tagB)?.trim() || "";
       const g = (override?.goal !== undefined ? override.goal : question || goal)?.trim() || "";
       const sessionReady =
         (s === "auto" && g.length >= 8) ||
@@ -478,6 +526,7 @@ export default function Page() {
         (s === "url" && Boolean(u)) ||
         (s === "compare" && Boolean(r) && Boolean(rB)) ||
         (s === "package" && Boolean(pkg)) ||
+        (s === "releases" && Boolean(r) && Boolean(tA) && Boolean(tB) && tA !== tB) ||
         s === "corpus" ||
         s === "trending";
       if (!sessionReady) return;
@@ -502,7 +551,9 @@ export default function Page() {
             ? "trending → draft → eval…"
             : s === "package"
               ? `${reg} package → draft → eval…`
-              : "orchestrate → draft → eval…",
+              : s === "releases"
+                ? "release diff → draft → eval…"
+                : "orchestrate → draft → eval…",
       );
       emitPlan({ steps: planned, note: "Gathering…", active: true });
 
@@ -522,6 +573,8 @@ export default function Page() {
             since: s === "trending" ? since : undefined,
             packageName: s === "package" ? pkg : undefined,
             packageRegistry: s === "package" ? reg : undefined,
+            tagA: s === "releases" ? tA : undefined,
+            tagB: s === "releases" ? tB : undefined,
             question: s === "auto" || s === "trending" ? g || question : question,
             goal: s === "auto" || s === "trending" ? g || question : undefined,
           },
@@ -589,6 +642,8 @@ export default function Page() {
               question: userFacing,
               packageName: pkg,
               packageRegistry: reg,
+              tagA: tA,
+              tagB: tB,
             }),
             question: userFacing,
             answer: body.answer,
@@ -600,6 +655,8 @@ export default function Page() {
             goal: s === "auto" || s === "trending" ? g || undefined : undefined,
             packageName: s === "package" ? pkg || undefined : undefined,
             packageRegistry: s === "package" ? reg : undefined,
+            tagA: s === "releases" ? tA || undefined : undefined,
+            tagB: s === "releases" ? tB || undefined : undefined,
             steps: body.steps,
             evalScore,
             ms: body.ms,
@@ -673,6 +730,8 @@ export default function Page() {
       sinceInput,
       packageName,
       packageRegistry,
+      tagA,
+      tagB,
       appendMessage,
     ],
   );
@@ -705,6 +764,8 @@ export default function Page() {
       if (entry.goal) setGoalInput(entry.goal);
       if (entry.packageRegistry) setPackageRegistry(entry.packageRegistry);
       if (entry.packageName) setPackageInput(entry.packageName);
+      if (entry.tagA) setTagA(entry.tagA);
+      if (entry.tagB) setTagB(entry.tagB);
       setLastMarkdown(entry.markdown);
       await appendMessage(
         new TextMessage({
@@ -742,7 +803,9 @@ export default function Page() {
               ? `${repo} vs ${repoB}`
               : source === "package"
                 ? `${packageRegistry} · ${packageName || packageInput}`
-                : "corpus sample";
+                : source === "releases"
+                  ? `${repo} · ${tagA}→${tagB}`
+                  : "corpus sample";
     setSaved((prev) =>
       [
         {
@@ -757,6 +820,8 @@ export default function Page() {
           goal: source === "auto" ? goal : undefined,
           packageName: source === "package" ? packageName || undefined : undefined,
           packageRegistry: source === "package" ? packageRegistry : undefined,
+          tagA: source === "releases" ? tagA || undefined : undefined,
+          tagB: source === "releases" ? tagB || undefined : undefined,
         },
         ...prev,
       ].slice(0, 8),
@@ -775,6 +840,10 @@ export default function Page() {
     if (demo.source === "package") {
       if (demo.packageRegistry) setPackageRegistry(demo.packageRegistry);
       if (demo.packageName) setPackageInput(demo.packageName);
+    }
+    if (demo.source === "releases") {
+      setTagA(demo.tagA || "");
+      setTagB(demo.tagB || "");
     }
   };
 
@@ -813,13 +882,15 @@ export default function Page() {
             } · ${TRENDING_SINCE.find((o) => o.value === sinceInput)?.label || sinceInput}.`
           : source === "package"
             ? `Ready. ${packageRegistry} · ${packageName}.`
-            : source === "compare"
-              ? `Ready to compare ${repo} vs ${repoB}.`
-              : source === "url"
-                ? "Docs URL ready."
-                : source === "corpus"
-                  ? "Corpus sample ready."
-                  : `Repo ${repo} · ${mode} ready.`;
+            : source === "releases"
+              ? `Ready. ${repo} · ${tagA} → ${tagB}.`
+              : source === "compare"
+                ? `Ready to compare ${repo} vs ${repoB}.`
+                : source === "url"
+                  ? "Docs URL ready."
+                  : source === "corpus"
+                    ? "Corpus sample ready."
+                    : `Repo ${repo} · ${mode} ready.`;
 
   const startQuestion =
     source === "auto"
@@ -829,13 +900,16 @@ export default function Page() {
           `Rank trending ${languageInput || "any"} repos (${sinceInput}) for an engineering team.`
         : source === "package"
           ? suggest[0] || "Summarize latest version, license, and linked repo."
-          : source === "compare"
-            ? suggest[0] || "Compare these repositories."
-            : source === "corpus"
-              ? suggest[0] || "Summarize the sample docs."
-              : source === "url"
-                ? suggest[0] || "Summarize this document for an engineer."
-                : defaultQ?.[mode] || "Give a concise engineering brief with citations.";
+          : source === "releases"
+            ? suggest[0] ||
+              "Summarize breaking changes and notable features between these releases."
+            : source === "compare"
+              ? suggest[0] || "Compare these repositories."
+              : source === "corpus"
+                ? suggest[0] || "Summarize the sample docs."
+                : source === "url"
+                  ? suggest[0] || "Summarize this document for an engineer."
+                  : defaultQ?.[mode] || "Give a concise engineering brief with citations.";
 
   return (
     <TranscriptProvider>
@@ -865,8 +939,8 @@ export default function Page() {
             <ThemeToggle />
           </div>
           <p style={{ margin: "0 0 12px", color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>
-            GitHub, docs, compare, trending, npm/PyPI packages, or bundled corpus. Run agent drafts
-            a brief with citations.
+            GitHub, docs, compare, trending, packages, release diffs, or corpus. Run agent drafts a
+            brief with citations.
           </p>
 
           <div
@@ -901,6 +975,7 @@ export default function Page() {
                 ["auto", "Auto"],
                 ["trending", "Trending"],
                 ["package", "Package"],
+                ["releases", "Releases"],
                 ["github", "GitHub"],
                 ["url", "Docs"],
                 ["compare", "Compare"],
@@ -1002,7 +1077,8 @@ export default function Page() {
           source !== "compare" &&
           source !== "corpus" &&
           source !== "trending" &&
-          source !== "package" ? (
+          source !== "package" &&
+          source !== "releases" ? (
             <>
               <p className="section-label">Brief type</p>
               <select
@@ -1020,14 +1096,36 @@ export default function Page() {
             </>
           ) : null}
 
-          {source === "github" || source === "url" || source === "compare" ? (
+          {source === "github" ||
+          source === "url" ||
+          source === "compare" ||
+          source === "releases" ? (
             <RepoCombobox
-              label={source === "compare" ? "Repo A" : "GitHub repo"}
+              label={
+                source === "compare" ? "Repo A" : source === "releases" ? "GitHub repo" : "GitHub repo"
+              }
               value={repoInput}
-              onChange={setRepoInput}
+              onChange={(v) => {
+                setRepoInput(v);
+                if (source === "releases") {
+                  setTagA("");
+                  setTagB("");
+                }
+              }}
               savedRepos={saved
                 .map((s) => s.repo)
                 .filter((r): r is string => Boolean(r))}
+            />
+          ) : null}
+
+          {source === "releases" ? (
+            <ReleaseDiffPanel
+              repo={repo}
+              tagA={tagA}
+              tagB={tagB}
+              onTagA={setTagA}
+              onTagB={setTagB}
+              disabled={mcpBlocked || pipelineBusy || isLoading}
             />
           ) : null}
 
@@ -1107,7 +1205,9 @@ export default function Page() {
                   ? "Rank trending"
                   : source === "package"
                     ? "Brief package"
-                    : "Start brief"}
+                    : source === "releases"
+                      ? "Diff releases"
+                      : "Start brief"}
           </button>
 
           {canCancel ? (
@@ -1158,6 +1258,8 @@ export default function Page() {
                     goal: d.goal || d.question,
                     packageName: d.packageName || null,
                     packageRegistry: d.packageRegistry,
+                    tagA: d.tagA || null,
+                    tagB: d.tagB || null,
                   });
                 }}
               >
@@ -1188,6 +1290,8 @@ export default function Page() {
                       if (s.goal) setGoalInput(s.goal);
                       if (s.packageRegistry) setPackageRegistry(s.packageRegistry);
                       if (s.packageName) setPackageInput(s.packageName);
+                      if (s.tagA) setTagA(s.tagA);
+                      if (s.tagB) setTagB(s.tagB);
                     }}
                   >
                     {s.source} · {s.label}

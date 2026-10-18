@@ -11,11 +11,13 @@ Read session fields: source_kind, brief_mode, repo, repo_b, url, goal.
 | corpus | corpus |
 | trending | trending |
 | package | package |
+| releases | releases |
 
 If the user pastes a free-form goal with owner/name or https URLs, use `auto`.
 Goals about "trending on GitHub" → `trending` (or `brief_auto`, which invents trending).
 "Find / recommend libraries" without a repo → `brief_github_search` via auto invent `discover`.
 npm/PyPI package name in the left panel → `package` (`brief_npm_package` / `brief_pypi_package`).
+Two release tags for a repo → `releases` (`brief_repo_release_diff`).
 
 Tiny yes/no clarifications about the previous answer → `followup`.
 

@@ -2,7 +2,15 @@ import { callMcpTool } from "./mcp-client";
 import { fetchGithubTrending, isMcpToolMissing } from "./github-trending";
 
 export type BriefRunInput = {
-  source: "auto" | "github" | "url" | "compare" | "corpus" | "trending" | "package";
+  source:
+    | "auto"
+    | "github"
+    | "url"
+    | "compare"
+    | "corpus"
+    | "trending"
+    | "package"
+    | "releases";
   mode?: string;
   repo?: string | null;
   repoB?: string | null;
@@ -11,6 +19,8 @@ export type BriefRunInput = {
   since?: string | null;
   packageName?: string | null;
   packageRegistry?: "npm" | "pypi" | null;
+  tagA?: string | null;
+  tagB?: string | null;
   question: string;
   goal?: string | null;
 };
@@ -295,6 +305,44 @@ export async function runBriefPipeline(
         };
       }
       evidence = pkg.text;
+    } else if (input.source === "releases") {
+      const r = (input.repo || "").trim();
+      const a = (input.tagA || "").trim();
+      const b = (input.tagB || "").trim();
+      if (!r || !a || !b) {
+        return {
+          ok: false,
+          answer: "",
+          steps,
+          error: "repo, tagA, and tagB are required",
+          ms: Date.now() - t0,
+        };
+      }
+      if (a === b) {
+        return {
+          ok: false,
+          answer: "",
+          steps,
+          error: "pick two different release tags",
+          ms: Date.now() - t0,
+        };
+      }
+      pushStep(steps, "brief_repo_release_diff", onStep);
+      const diff = await callMcpTool("brief_repo_release_diff", {
+        repo: r,
+        tag_a: a,
+        tag_b: b,
+      });
+      if (!diff.ok) {
+        return {
+          ok: false,
+          answer: "",
+          steps,
+          error: diff.error || "release diff failed",
+          ms: Date.now() - t0,
+        };
+      }
+      evidence = diff.text;
     } else {
       pushStep(steps, "brief_orchestrate", onStep);
       const orch = await callMcpTool("brief_orchestrate", {

@@ -83,6 +83,9 @@ export function renderSessionNote(args: {
   if (args.source === "package") {
     return notes.package_missing || "Pick npm or PyPI and a package name.";
   }
+  if (args.source === "releases") {
+    return notes.releases_missing || "Pick a repo and two release tags.";
+  }
   if (args.source === "github") {
     return args.repo
       ? renderTemplate(notes.github_ready, { repo: args.repo, mode: args.mode })

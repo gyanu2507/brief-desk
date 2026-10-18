@@ -55,6 +55,11 @@
       "Summarize latest version, license, and linked repo.",
       "Is this mature enough for production? Cite registry facts.",
       "What are the main dependencies and who maintains it?"
+    ],
+    "releases": [
+      "Summarize breaking changes and notable features between these releases.",
+      "What should an eng team watch when upgrading across these tags?",
+      "List fixes vs features from the release notes."
     ]
   },
   "sessionNotes": {
@@ -68,7 +73,9 @@
     "corpus": "Use brief_corpus once, then brief_eval.",
     "trending": "Use brief_github_trending (language/since), draft shortlist, then brief_eval.",
     "package_ready": "Call brief_{{registry}}_package with name={{package}}, draft from registry evidence, then brief_eval.",
-    "package_missing": "Pick npm or PyPI and enter a package name, or switch to Auto."
+    "package_missing": "Pick npm or PyPI and enter a package name, or switch to Auto.",
+    "releases_ready": "Call brief_repo_release_diff with repo={{repo}} tag_a={{tag_a}} tag_b={{tag_b}}, draft a changelog delta, then brief_eval.",
+    "releases_missing": "Pick a repo and two different release tags, or switch to Auto."
   },
   "demos": [
     {
@@ -100,6 +107,15 @@
       "packageRegistry": "pypi",
       "packageName": "httpx",
       "question": "Is this mature enough for production? Cite registry facts."
+    },
+    {
+      "label": "Releases · Next.js tags",
+      "source": "releases",
+      "mode": "general",
+      "repo": "vercel/next.js",
+      "tagA": "v14.2.0",
+      "tagB": "v15.0.0",
+      "question": "Summarize breaking changes and notable features between these releases."
     },
     {
       "label": "Guided · React risks",

@@ -19,6 +19,8 @@ export type BriefHistoryEntry = {
   goal?: string;
   packageName?: string;
   packageRegistry?: PackageRegistry;
+  tagA?: string;
+  tagB?: string;
   steps?: string[];
   evalScore?: number | null;
   ms?: number;
@@ -75,12 +77,19 @@ export function historyLabel(args: {
   question: string;
   packageName?: string | null;
   packageRegistry?: PackageRegistry | null;
+  tagA?: string | null;
+  tagB?: string | null;
 }): string {
   if (args.source === "auto" || args.source === "trending") {
     return (args.goal || args.question).slice(0, 56);
   }
   if (args.source === "package" && args.packageName) {
     return `${args.packageRegistry || "npm"} · ${args.packageName}`.slice(0, 56);
+  }
+  if (args.source === "releases" && args.repo) {
+    const tags =
+      args.tagA && args.tagB ? `${args.tagA}→${args.tagB}` : "releases";
+    return `${args.repo} · ${tags}`.slice(0, 56);
   }
   if (args.repo) return `${args.source} · ${args.repo}`;
   return (args.question || args.source).slice(0, 56);

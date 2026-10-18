@@ -231,7 +231,7 @@ async def search_repos_recent_stars(
 
 async def fetch_repo_releases(repo: str, max_results: int = 5) -> dict[str, Any]:
     target = repo.strip()
-    limit = max(1, min(max_results, 15))
+    limit = max(1, min(max_results, 30))
     ok, data, status, err = await github_json(f"/repos/{target}/releases?per_page={limit}")
     if not ok:
         return {

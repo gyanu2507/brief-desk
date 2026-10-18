@@ -453,6 +453,40 @@ select.field option,
   font-size: 11px;
 }
 
+.release-diff {
+  margin: 4px 0 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--query-bg);
+}
+
+.release-diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.release-diff-status {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.release-diff-error {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--bad);
+}
+
+.release-diff-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .mcp-warn {
   margin: 0 0 12px;
   padding: 8px 10px;

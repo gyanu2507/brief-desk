@@ -48,6 +48,13 @@ export function expectedSteps(
       { id: "eval", label: "brief_eval", state: "pending" },
     ];
   }
+  if (source === "releases") {
+    return [
+      { id: "diff", label: "brief_repo_release_diff", state: "pending" },
+      { id: "draft", label: "draft", state: "pending" },
+      { id: "eval", label: "brief_eval", state: "pending" },
+    ];
+  }
   return [
     { id: "orch", label: "brief_orchestrate", state: "pending" },
     { id: "draft", label: "draft", state: "pending" },

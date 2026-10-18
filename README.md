@@ -74,6 +74,7 @@ Legacy TypeScript MCP (optional): `npm run dev:mcp:ts`
 | **Auto** | free-form goal with `owner/name`, URL, npm/PyPI package, trending, or “find libs…” | `brief_auto` then draft/eval |
 | **Trending** | language + daily/weekly/monthly | live GitHub trending shortlist |
 | **Package** | npm or PyPI + package name | `brief_npm_package` / `brief_pypi_package` then draft/eval |
+| **Releases** | repo + two tags | `brief_repo_release_diff` then draft/eval |
 | GitHub | `owner/name` + brief type | guided orchestrate (+ releases/security on risks) |
 | Docs | public URL | fetch + brief |
 | Compare | two repos | side-by-side |

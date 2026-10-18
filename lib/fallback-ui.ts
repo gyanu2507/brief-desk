@@ -61,6 +61,11 @@ export const FALLBACK_UI: PromptUi = {
       "Is this mature enough for production? Cite registry facts.",
       "What are the main dependencies and who maintains it?",
     ],
+    releases: [
+      "Summarize breaking changes and notable features between these releases.",
+      "What should an eng team watch when upgrading across these tags?",
+      "List fixes vs features from the release notes.",
+    ],
   },
   sessionNotes: {
     auto: "Call brief_auto once (or brief_plan + gather tools). Draft + brief_eval.",
@@ -75,6 +80,9 @@ export const FALLBACK_UI: PromptUi = {
     package_ready:
       "Call brief_{{registry}}_package with name={{package}}, draft from registry evidence, then brief_eval.",
     package_missing: "Pick npm or PyPI and enter a package name, or switch to Auto.",
+    releases_ready:
+      "Call brief_repo_release_diff with repo={{repo}} tag_a={{tag_a}} tag_b={{tag_b}}, draft a changelog delta, then brief_eval.",
+    releases_missing: "Pick a repo and two different release tags, or switch to Auto.",
   },
   demos: [
     {
@@ -108,11 +116,13 @@ export const FALLBACK_UI: PromptUi = {
       question: "Is this mature enough for production? Cite registry facts.",
     },
     {
-      label: "Auto · Find form libs",
-      source: "auto" as SourceKind,
+      label: "Releases · Next.js tags",
+      source: "releases" as SourceKind,
       mode: "general" as BriefMode,
-      goal: "Find React form libraries with strong TypeScript support. Shortlist with stars and fit.",
-      question: "Find React form libraries with strong TypeScript support. Shortlist with stars and fit.",
+      repo: "vercel/next.js",
+      tagA: "v14.2.0",
+      tagB: "v15.0.0",
+      question: "Summarize breaking changes and notable features between these releases.",
     },
     {
       label: "Guided · React risks",

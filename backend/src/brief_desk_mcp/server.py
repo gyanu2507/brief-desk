@@ -263,7 +263,7 @@ async def brief_repo_releases(repo: str, max_results: int = 5) -> str:
     if not target:
         raise ToolError("repo is required (owner/name)")
     try:
-        return _json(await fetch_repo_releases(target, max_results=max(1, min(max_results, 15))))
+        return _json(await fetch_repo_releases(target, max_results=max(1, min(max_results, 30))))
     except Exception as e:
         raise ToolError(f"brief_repo_releases failed: {e}") from e
 
