@@ -44,7 +44,7 @@ export function planForMode(mode: BriefMode, hasRepo: boolean, hasUrl: boolean):
   if (hasRepo) {
     if (mode === "overview") steps.push("gather:overview", "optional:root");
     else if (mode === "activity" || mode === "risks") {
-      steps.push("gather:issues+releases", "optional:workspace");
+      steps.push("gather:issues+releases");
     } else if (mode === "architecture") steps.push("gather:overview+root", "optional:code");
     else if (mode === "code") steps.push("gather:ask(code)", "optional:file");
     else if (mode === "docs") steps.push(hasUrl ? "gather:url" : "gather:overview+corpus");
@@ -111,14 +111,13 @@ export function buildAutonomousPlan(goal: string): Record<string, unknown> {
     subgoals.push("Cite paths, issues, or URLs from evidence");
   }
 
-  const tool_steps: string[] = ["brief_plan (done)"];
+  const tool_steps: string[] = [];
   if (source_kind === "corpus") {
-    tool_steps.push("brief_corpus", "draft", "brief_eval", "revise if pass=false");
+    tool_steps.push("brief_auto (or brief_corpus)", "draft from evidence", "brief_eval");
   } else if (repos.length || docsUrls.length) {
     tool_steps.push(
-      "brief_orchestrate with inferred fields",
-      "optional: brief_repo_file / brief_fetch_url for gaps",
-      "draft from gather only",
+      "brief_auto once (plan+gather)",
+      "draft from gather only — no more gather tools",
       "brief_eval",
       "revise once if pass=false",
     );

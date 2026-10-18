@@ -43,7 +43,7 @@ export function createDefaultAgent(): BuiltInAgent {
 
   return new BuiltInAgent({
     model: resolveAgentModel("openai:openai/gpt-oss-20b"),
-    maxSteps: 14,
+    maxSteps: 8,
     prompt: loadAgentSystemPrompt(),
     mcpServers: [
       {

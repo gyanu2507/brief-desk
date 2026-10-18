@@ -20,6 +20,7 @@ test("buildAutonomousPlan invents github risks plan", () => {
   assert.equal(invented.repo, "facebook/react");
   assert.ok(invented.subgoals.length >= 1);
   assert.match(String(plan.next), /Execute tool_steps/);
+  assert.ok((plan.tool_steps as string[]).some((s) => s.includes("brief_auto")));
 });
 
 test("buildAutonomousPlan invents compare targets", () => {

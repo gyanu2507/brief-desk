@@ -6,7 +6,7 @@ import {
 import { createDefaultAgent } from "../../agent";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const copilotRuntime = new CopilotRuntime({
   agents: {

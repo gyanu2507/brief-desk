@@ -45,7 +45,7 @@ npm run dev
 
 | Source | What you set | What the agent does |
 |---|---|---|
-| **Auto** (default) | a free-form goal with `owner/name` or `https://…` | `brief_plan` invents source/mode/subgoals, then executes |
+| **Auto** (default) | a free-form goal with `owner/name` or `https://…` | `brief_auto` invents plan + gathers, then draft/eval |
 | GitHub | `owner/name` + brief type | guided orchestrate → eval |
 | Docs URL | `https://…` (+ optional repo) | fetch + brief |
 | Compare | Repo A + Repo B | side-by-side |
@@ -53,7 +53,8 @@ npm run dev
 
 Also: MCP health indicator, saved session shortcuts, agent log.
 
-Autonomous loop: **`brief_plan`** → **`brief_orchestrate`** → draft → **`brief_eval`**. Revise if `pass=false`.
+Autonomous loop: **`brief_auto`** (plan+gather) → draft → **`brief_eval`**. Revise if `pass=false`.
+Keep it short: no `brief_workspace` after gather.
 
 ### Prompt-file routing
 
@@ -79,7 +80,7 @@ prompts/
 Edit a route file and redeploy the Next app to change behavior. No TypeScript change required
 for copy or routing instructions.
 
-**Render:** redeploy the MCP service after pull so `brief_plan` (v0.5.0) is live.
+**Render:** Manual Deploy the MCP service after pull so `brief_auto` (v0.5.1) is live.
 
 `GITHUB_TOKEN` on the MCP host unlocks code search and higher GitHub rate limits.
 

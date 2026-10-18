@@ -281,7 +281,7 @@ export default function Page() {
         s === "corpus";
       if (!sessionReady) return;
 
-      setBusyNote(s === "auto" ? "Planning → orchestrate → eval…" : "Running orchestrate → eval…");
+      setBusyNote(s === "auto" ? "brief_auto → draft → eval…" : "Running orchestrate → eval…");
       try {
         const res = await fetch("/api/prompts", {
           method: "POST",
@@ -305,6 +305,9 @@ export default function Page() {
           role: "user",
           content: body.content,
         });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Agent run failed";
+        window.dispatchEvent(new CustomEvent("brief-desk-error", { detail: message }));
       } finally {
         setBusyNote(null);
       }

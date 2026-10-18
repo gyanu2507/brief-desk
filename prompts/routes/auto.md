@@ -2,16 +2,13 @@
 
 When source_kind=auto (or the user gives only a free-form goal):
 
-1. Call brief_plan with the full goal text.
-2. Read invented.source_kind, mode, repo, repo_b, url, subgoals, and tool_steps.
-3. Execute immediately:
-   - If compare: brief_orchestrate mode=compare with both repos.
-   - If url: brief_orchestrate / brief_fetch_url with the URL.
-   - If github: brief_orchestrate with repo + mode.
-   - If corpus: brief_corpus.
-4. Draft from evidence only. Address each invented subgoal briefly.
-5. brief_eval, revise once if pass=false, then answer with citations.
-6. Open your answer with one line naming the plan you chose (source + mode + targets).
+1. Call **brief_auto** once with the full goal text (not brief_plan + brief_orchestrate separately).
+2. Read invented fields, subgoals, and gather from the result.
+3. Draft the brief immediately from gather. Address each subgoal in a few bullets.
+4. Call brief_eval. If pass=false, revise once, then send the final answer.
+5. Open with one line naming the plan (source + mode + targets).
+
+Do **not** call brief_workspace, brief_fetch_url, brief_repo_file, or a second orchestrate unless brief_auto returned an explicit error and gather is empty.
 
 Do not ask the user to fill the left panel if the goal already contains owner/name or https URLs.
-Ask at most one clarifying question only when the plan's next field says the goal is too vague.
+Ask at most one clarifying question only when brief_auto says the goal is too vague.

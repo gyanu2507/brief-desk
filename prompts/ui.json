@@ -1,5 +1,5 @@
 {
-  "readableDescription": "Active brief-desk session. In auto mode call brief_plan first, then execute. Otherwise prefer brief_orchestrate then brief_eval. Do not invent tool names. Follow prompts/router.md.",
+  "readableDescription": "Active brief-desk session. In auto mode call brief_auto once, then draft and brief_eval. Do not call brief_workspace afterward. Follow prompts/router.md.",
   "modes": [
     { "id": "overview", "label": "Overview" },
     { "id": "risks", "label": "Risks" },
@@ -46,7 +46,7 @@
     ]
   },
   "sessionNotes": {
-    "auto": "Autonomous mode. Call brief_plan on the user goal, invent source/mode/targets, execute without waiting for the panel.",
+    "auto": "Autonomous mode. Call brief_auto once on the user goal, draft from gather, then brief_eval. No brief_workspace.",
     "auto_hint": "Optional panel hints may be present; prefer extracting from the goal.",
     "github_ready": "Use brief_orchestrate with repo={{repo}} and mode={{mode}}, then brief_eval.",
     "github_missing": "Ask user for owner/name or switch to Auto and put the repo in the goal.",

@@ -15,6 +15,15 @@ import {
   type BriefMode,
 } from "./plan";
 
+type InventedPlan = {
+  source_kind: string;
+  mode: BriefMode;
+  repo: string | null;
+  repo_b: string | null;
+  url: string | null;
+  subgoals: string[];
+};
+
 const PORT = Number(process.env.PORT || process.env.MCP_PORT || 3108);
 const HOST = process.env.HOST || "0.0.0.0";
 
@@ -486,7 +495,7 @@ async function runOrchestrate(args: {
       stages.gather = JSON.parse(await fetchRepoAsk(repo, args.question));
     }
     stages.guidance =
-      "Answer from gather only. Cite paths and #issue/#PR numbers. Then call brief_eval with question, draft, and a short evidence excerpt.";
+      "Answer from gather only. Do not call brief_workspace. Cite paths and #issue/#PR numbers. Then call brief_eval with question, draft, and a short evidence excerpt.";
   } else {
     stages.gather = {
       note: "No repo/url. Call brief_corpus for the bundled sample, or ask the user for owner/name or a public docs URL.",
@@ -502,7 +511,7 @@ async function runOrchestrate(args: {
 function createBriefMcpServer(): McpServer {
   const server = new McpServer({
     name: "brief-desk-mcp",
-    version: "0.5.0",
+    version: "0.5.1",
   });
 
   server.tool(
@@ -672,13 +681,85 @@ function createBriefMcpServer(): McpServer {
 
   server.tool(
     "brief_plan",
-    "Autonomous planner: from a free-form goal, invent source/mode/repos/URL, subgoals, tool steps, and success criteria. Call this first in auto mode before brief_orchestrate.",
+    "Autonomous planner only (no gather). Prefer brief_auto in auto mode so plan+gather happen in one call.",
     {
       goal: z.string().describe("Free-form user goal (may include owner/name or https URLs)"),
     },
     async ({ goal }) => ({
       content: [{ type: "text", text: JSON.stringify(buildAutonomousPlan(goal), null, 2) }],
     }),
+  );
+
+  server.tool(
+    "brief_auto",
+    "Autonomous one-shot: invent plan from goal, then gather evidence (orchestrate/corpus). Call once in auto mode, then draft + brief_eval. Do not call brief_workspace or extra fetch tools afterward.",
+    {
+      goal: z.string().describe("Free-form user goal (may include owner/name or https URLs)"),
+    },
+    async ({ goal }) => {
+      try {
+        const plan = buildAutonomousPlan(goal);
+        const invented = plan.invented as InventedPlan;
+        if (invented.source_kind === "corpus") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    ...plan,
+                    gather_note: "Call brief_corpus next, or treat this as corpus-shaped and ask in chat.",
+                    guidance:
+                      "Use brief_corpus for local sample docs, draft from hits, then brief_eval. No other gather tools.",
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+        if (!invented.repo && !invented.url) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    ...plan,
+                    guidance:
+                      "Goal has no extractable repo/URL. Ask one clarifying question, or use brief_corpus.",
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+        const gather = await runOrchestrate({
+          question: goal,
+          repo: invented.repo || undefined,
+          repo_b: invented.repo_b || undefined,
+          url: invented.url || undefined,
+          mode: invented.mode,
+        });
+        const packed = {
+          ...plan,
+          gather: JSON.parse(gather),
+          guidance:
+            "Draft the user-facing brief NOW from gather only. Address each subgoal. Cite paths/#issue/URLs. Then call brief_eval. Do NOT call brief_workspace, brief_fetch_url, or brief_orchestrate again.",
+        };
+        let text = JSON.stringify(packed, null, 2);
+        if (text.length > 14000) text = truncate(text, 14000);
+        return { content: [{ type: "text", text }] };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `brief_auto failed: ${(e as Error).message}` }],
+          isError: true,
+        };
+      }
+    },
   );
 
   server.tool(
@@ -754,13 +835,13 @@ function createBriefMcpServer(): McpServer {
               ui: "CopilotKit React chat",
               protocol: "AG-UI (agent ↔ UI stream via CopilotRuntime)",
               tools: "MCP Streamable HTTP on this server",
-              loop: "brief_plan (auto) → brief_orchestrate → draft → brief_eval → revise",
+              loop: "brief_auto (plan+gather) → draft → brief_eval → revise",
               backends: [
-                "GitHub (overview/ask/file/workspace)",
+                "GitHub (overview/ask/file)",
                 "public URL fetch",
                 "local corpus-brief",
                 "free heuristic eval rubric",
-                "autonomous goal planner",
+                "autonomous brief_auto",
               ],
             },
             null,
@@ -791,8 +872,9 @@ app.get("/health", (_req, res) => {
     ok: true,
     mcp: "/mcp",
     service: "brief-desk-mcp",
-    version: "0.5.0",
+    version: "0.5.1",
     tools: [
+      "brief_auto",
       "brief_plan",
       "brief_orchestrate",
       "brief_eval",
