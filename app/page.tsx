@@ -13,6 +13,11 @@ import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
 import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
+import {
+  isKnownLanguage,
+  TRENDING_LANGUAGES,
+  TRENDING_SINCE,
+} from "../lib/select-options";
 import { renderTemplate } from "../lib/template";
 import type { BriefMode, PromptUi, SourceKind } from "../lib/types";
 
@@ -137,6 +142,8 @@ export default function Page() {
         repoB?: string;
         url?: string;
         goal?: string;
+        language?: string;
+        since?: "daily" | "weekly" | "monthly";
         saved?: SavedBrief[];
       };
       if (parsed.source) setSource(parsed.source);
@@ -145,6 +152,12 @@ export default function Page() {
       if (parsed.repoB) setRepoBInput(parsed.repoB);
       if (parsed.url) setUrlInput(parsed.url);
       if (parsed.goal) setGoalInput(parsed.goal);
+      if (typeof parsed.language === "string" && isKnownLanguage(parsed.language)) {
+        setLanguageInput(parsed.language);
+      }
+      if (parsed.since === "daily" || parsed.since === "weekly" || parsed.since === "monthly") {
+        setSinceInput(parsed.since);
+      }
       if (Array.isArray(parsed.saved)) setSaved(parsed.saved.slice(0, 8));
     } catch {
       // ignore
@@ -162,13 +175,15 @@ export default function Page() {
           repoB: repoBInput,
           url: urlInput,
           goal: goalInput,
+          language: languageInput,
+          since: sinceInput,
           saved,
         }),
       );
     } catch {
       // ignore
     }
-  }, [source, mode, repoInput, repoBInput, urlInput, goalInput, saved]);
+  }, [source, mode, repoInput, repoBInput, urlInput, goalInput, languageInput, sinceInput, saved]);
 
   useEffect(() => {
     let cancelled = false;
@@ -561,7 +576,9 @@ export default function Page() {
           ? "Ready. Run agent → brief_auto → draft → eval."
           : "Ready (compat). Run agent → brief_plan → orchestrate → eval."
         : source === "trending"
-          ? `Ready. Trending ${languageInput || "any"} · ${sinceInput}.`
+          ? `Ready. Trending ${
+              TRENDING_LANGUAGES.find((o) => o.value === languageInput)?.label || "Any"
+            } · ${TRENDING_SINCE.find((o) => o.value === sinceInput)?.label || sinceInput}.`
           : source === "compare"
             ? `Ready to compare ${repo} vs ${repoB}.`
             : source === "url"
@@ -657,26 +674,33 @@ export default function Page() {
           {source === "trending" ? (
             <>
               <p className="section-label">Language</p>
-              <input
-                className="field"
+              <select
+                className="field field-select"
                 value={languageInput}
                 onChange={(e) => setLanguageInput(e.target.value)}
-                placeholder="typescript (or blank for any)"
-                spellCheck={false}
-              />
-              <p className="section-label">Window</p>
-              <div className="mode-row">
-                {(["daily", "weekly", "monthly"] as const).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className={`chip${sinceInput === s ? " active" : ""}`}
-                    onClick={() => setSinceInput(s)}
-                  >
-                    {s}
-                  </button>
+                aria-label="Trending language"
+              >
+                {TRENDING_LANGUAGES.map((opt) => (
+                  <option key={opt.value || "any"} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
-              </div>
+              </select>
+              <p className="section-label">Window</p>
+              <select
+                className="field field-select"
+                value={sinceInput}
+                onChange={(e) =>
+                  setSinceInput(e.target.value as "daily" | "weekly" | "monthly")
+                }
+                aria-label="Trending time window"
+              >
+                {TRENDING_SINCE.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </>
           ) : null}
 
@@ -699,18 +723,18 @@ export default function Page() {
           source !== "trending" ? (
             <>
               <p className="section-label">Brief type</p>
-              <div className="mode-row">
+              <select
+                className="field field-select"
+                value={mode}
+                onChange={(e) => setMode(e.target.value as BriefMode)}
+                aria-label="Brief type"
+              >
                 {modes.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className={`chip${mode === m.id ? " active" : ""}`}
-                    onClick={() => setMode(m.id)}
-                  >
+                  <option key={m.id} value={m.id}>
                     {m.label}
-                  </button>
+                  </option>
                 ))}
-              </div>
+              </select>
             </>
           ) : null}
 

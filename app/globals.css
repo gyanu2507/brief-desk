@@ -243,6 +243,44 @@ code {
   outline-offset: 1px;
 }
 
+select.field,
+.field-select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M2.5 4.5L6 8l3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+[data-theme="dark"] select.field,
+[data-theme="dark"] .field-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M2.5 4.5L6 8l3.5-3.5'/%3E%3C/svg%3E");
+}
+
+select.field:hover,
+.field-select:hover {
+  border-color: var(--accent);
+}
+
+select.field option,
+.field-select option {
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.theme-toggle.select-theme {
+  padding: 6px 28px 6px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  max-width: 120px;
+  margin-bottom: 0;
+  font-family: inherit;
+}
+
 .btn-primary {
   width: 100%;
   padding: 12px;

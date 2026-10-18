@@ -99,35 +99,22 @@ export function useTheme() {
 }
 
 export function ThemeToggle() {
-  const { mode, resolved, cycle } = useTheme();
+  const { mode, resolved, setMode } = useTheme();
   const label =
     mode === "system" ? `System (${resolved})` : mode === "dark" ? "Dark" : "Light";
 
   return (
-    <button
-      type="button"
-      className="theme-toggle"
-      onClick={cycle}
-      title={`Theme: ${label}. Click to cycle light → dark → system.`}
-      aria-label={`Theme ${label}. Click to change.`}
+    <select
+      className="theme-toggle select-theme field-select"
+      value={mode}
+      onChange={(e) => setMode(e.target.value as ThemeMode)}
+      title={`Theme: ${label}`}
+      aria-label="Color theme"
     >
-      {resolved === "dark" ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
-          />
-        </svg>
-      ) : (
-        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M12 4a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1zm0 13a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0v-1a1 1 0 0 1 1-1zm8-5a1 1 0 0 1-1 1h-1a1 1 0 1 1 0-2h1a1 1 0 0 1 1 1zM6 12a1 1 0 0 1-1 1H4a1 1 0 1 1 0-2h1a1 1 0 0 1 1 1zm11.66 5.66a1 1 0 0 1-1.41 0l-.71-.71a1 1 0 1 1 1.41-1.41l.71.71a1 1 0 0 1 0 1.41zM8.46 8.46a1 1 0 0 1-1.41 0l-.71-.71A1 1 0 0 1 7.75 6.34l.71.71a1 1 0 0 1 0 1.41zm9.2-2.12a1 1 0 0 1 0 1.41l-.71.71A1 1 0 1 1 15.54 7l.71-.71a1 1 0 0 1 1.41 0zM8.46 15.54a1 1 0 0 1 0 1.41l-.71.71A1 1 0 1 1 6.34 16.25l.71-.71a1 1 0 0 1 1.41 0zM12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"
-          />
-        </svg>
-      )}
-      <span>{mode === "system" ? "Auto" : mode === "dark" ? "Dark" : "Light"}</span>
-    </button>
+      <option value="system">System</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
   );
 }
 
