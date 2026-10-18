@@ -50,6 +50,9 @@ function summarizeArgs(raw: string | undefined): string {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const bits: string[] = [];
     if (typeof parsed.repo === "string") bits.push(`repo=${parsed.repo}`);
+    if (typeof parsed.repo_b === "string") bits.push(`repo_b=${parsed.repo_b}`);
+    if (typeof parsed.url === "string") bits.push(`url=${parsed.url}`);
+    if (typeof parsed.mode === "string") bits.push(`mode=${parsed.mode}`);
     if (typeof parsed.source === "string") bits.push(`source=${parsed.source}`);
     if (typeof parsed.path === "string") bits.push(`path=${parsed.path}`);
     if (typeof parsed.question === "string") {
@@ -64,6 +67,12 @@ function summarizeArgs(raw: string | undefined): string {
 
 function routeForTool(name: string): string {
   switch (name) {
+    case "brief_orchestrate":
+      return "MCP → orchestrator (plan → gather → guidance)";
+    case "brief_eval":
+      return "MCP → free eval rubric (groundedness / citations)";
+    case "brief_fetch_url":
+      return "MCP → public URL fetch";
     case "brief_repo_ask":
       return "MCP → GitHub (README + issues + code + releases)";
     case "brief_repo_overview":

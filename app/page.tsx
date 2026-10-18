@@ -38,14 +38,15 @@ export default function Page() {
 
   useCopilotReadable({
     description:
-      "Active GitHub repository. Prefer brief_repo_overview for features/overview, brief_workspace for issues/PRs, brief_repo_ask for code/how-it-works. Pass this repo on every tool call.",
+      "Active briefing context. Prefer brief_orchestrate then brief_eval. Sources: GitHub repo (if set), public docs URLs, or brief_corpus. Compare needs repo_b. Pass repo on tool calls when set.",
     value: activeRepo
-      ? { repo: activeRepo, source: "github", mode: "live" }
+      ? { repo: activeRepo, source: "github", mode: "live", loop: "orchestrate→draft→eval" }
       : {
           repo: null,
-          source: "fixture",
-          mode: "sample",
-          note: "No owner/name selected. Ask for a GitHub repo, or use the offline sample if the user wants the demo fixture.",
+          source: "open",
+          mode: "multi-source",
+          note: "No repo selected. User can give owner/name, a public docs URL, ask to compare two repos, or use the local corpus sample.",
+          loop: "orchestrate→draft→eval",
         },
   });
 
@@ -71,11 +72,11 @@ export default function Page() {
           BRIEF-DESK
         </p>
         <h1 style={{ margin: "8px 0 12px", fontSize: 28, lineHeight: 1.15 }}>
-          Agent desk for live workspaces
+          Orchestrated briefing desk
         </h1>
         <p style={{ margin: "0 0 18px", color: "var(--muted)", fontSize: 14, lineHeight: 1.5 }}>
-          Pick any public GitHub repo. The right panel shows the live agent route
-          and tool calls as they run.
+          GitHub repos, public docs URLs, or local corpus. Orchestrator plans,
+          gathers evidence, then a free eval rubric checks the draft.
         </p>
 
         <label
@@ -111,8 +112,8 @@ export default function Page() {
         />
         <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--muted)", lineHeight: 1.45 }}>
           {activeRepo
-            ? `Live mode: ${activeRepo}`
-            : "Enter owner/name (or a github.com URL) for realtime answers."}
+            ? `Repo context: ${activeRepo} (still can pass a docs URL in chat)`
+            : "Optional repo. Or ask with a public docs URL, compare two repos, or use the corpus sample."}
         </p>
 
         <ul
@@ -124,13 +125,13 @@ export default function Page() {
             lineHeight: 1.6,
           }}
         >
-          <li>CopilotKit chat + runtime</li>
-          <li>AG-UI agent protocol</li>
-          <li>MCP → GitHub / brief CLIs</li>
+          <li>Orchestrate → draft → eval</li>
+          <li>GitHub + public URLs + corpus</li>
+          <li>AG-UI + MCP (free Groq)</li>
         </ul>
         <p style={{ marginTop: 22, fontSize: 13, color: "var(--muted)" }}>
-          Try: &quot;what are the main features?&quot;, &quot;how does auth work?&quot;,
-          or &quot;what are the open issues?&quot;
+          Try: &quot;compare owner/a vs owner/b&quot;, &quot;risks in this repo&quot;,
+          or &quot;summarize https://… docs&quot;.
         </p>
       </aside>
       <section style={{ minHeight: "100vh", background: "#eef2ff", minWidth: 0 }}>
@@ -138,8 +139,8 @@ export default function Page() {
           labels={{
             title: "brief-desk",
             initial: activeRepo
-              ? `Ask about ${activeRepo}. Watch the agent log for the live route.`
-              : "Set a GitHub owner/name on the left for live answers, or ask about the offline sample workspace.",
+              ? `Ask about ${activeRepo}, pass a docs URL, or request a risk/architecture brief. The agent runs orchestrate → eval.`
+              : "Give a GitHub owner/name, a public docs URL, two repos to compare, or ask the local corpus sample. Loop: orchestrate → eval.",
           }}
           className="h-full"
           Messages={LoggingMessages}

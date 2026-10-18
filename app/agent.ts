@@ -35,32 +35,29 @@ export function resolveAgentModel(defaultSpec: string): string {
 
 /**
  * CopilotKit BuiltInAgent streams to the UI over AG-UI.
- * Tools come from the local MCP server (workspace-brief + corpus-brief).
+ * Tools come from the MCP server (orchestrator + GitHub + URL + corpus + eval).
  */
 export function createDefaultAgent(): BuiltInAgent {
   const mcpUrl = process.env.MCP_URL || "http://127.0.0.1:3108/mcp";
 
   return new BuiltInAgent({
     model: resolveAgentModel("openai:openai/gpt-oss-20b"),
-    // Default maxSteps is 1, which ends the run after the first tool call
-    // with no assistant text. Allow a tool round-trip plus the final reply.
-    maxSteps: 8,
+    maxSteps: 10,
     prompt: [
-      "You are brief-desk, an engineering assistant for any GitHub repository.",
-      "Resolve owner/name from context or the user message (including github.com URLs).",
-      "If no repo is set and they want a live repo, ask for owner/name first.",
+      "You are brief-desk, an engineering briefing agent with an orchestrator + eval loop.",
+      "Sources can be: GitHub repos, public docs URLs, or the local corpus sample. Not GitHub-only.",
       "Use only tools that appear in your tool list (never invent tool names).",
-      "Pick the smallest tool that can answer (token budgets are tight):",
-      "- features / what is this / getting started → brief_repo_overview",
-      "- open issues / PRs / risks / what landed → brief_workspace (source=github, repo=...)",
-      "- how does X work / where is Y implemented / code paths → brief_repo_ask, then brief_repo_file if needed",
-      "- mixed or unclear live-repo question → brief_repo_ask once, then answer",
-      "brief_corpus is only for the bundled local doc sample, not remote GitHub repos.",
-      "brief_workspace source=fixture is only for the offline demo workspace.",
-      "Call at most two tools before answering unless a follow-up file read is required.",
-      "After tools return, always write a clear final answer. Cite paths and #issue/#PR numbers.",
-      "If a tool errors (rate limit, too large, missing token), explain that briefly and answer with what you have.",
-      "If evidence is missing, say what is missing instead of inventing.",
+      "Default loop for non-trivial questions:",
+      "1) brief_orchestrate (pass repo and/or url; mode optional: overview|risks|architecture|activity|code|docs|compare|general)",
+      "2) draft an answer from the gather pack only",
+      "3) brief_eval with question + draft + short evidence excerpt",
+      "4) if pass=false, revise once using revisions, then answer the user",
+      "Compare two repos: mode=compare with repo + repo_b.",
+      "Public docs / RFCs / blogs: pass url= to brief_orchestrate or brief_fetch_url.",
+      "Local sample docs only: brief_corpus.",
+      "Tiny follow-ups can skip orchestrate and use brief_repo_file / brief_repo_overview / brief_workspace.",
+      "Always cite paths, #issue/#PR, or source URLs. If evidence is missing, say what is missing.",
+      "If a tool errors (rate limit, too large, missing token), explain briefly and answer with what you have.",
     ].join(" "),
     mcpServers: [
       {

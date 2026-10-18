@@ -360,10 +360,190 @@ async function fetchRepoOverview(repo: string): Promise<string> {
   );
 }
 
+type BriefMode = "overview" | "risks" | "architecture" | "activity" | "code" | "docs" | "compare" | "general";
+
+function classifyBriefMode(question: string): BriefMode {
+  const q = question.toLowerCase();
+  if (/\b(compar|vs\.?|versus|diff(erence)? between)\b/.test(q)) return "compare";
+  if (/\b(risk|security|vulnerab|cve|threat|incident)\b/.test(q)) return "risks";
+  if (/\b(architect|design|structure|module|component|how is it (built|organized))\b/.test(q)) {
+    return "architecture";
+  }
+  if (/\b(issue|pr|pull request|landed|merged|changelog|release|activity)\b/.test(q)) return "activity";
+  if (/\b(how does|where is|implement|code|source|function|api|endpoint)\b/.test(q)) return "code";
+  if (/\b(doc|docs|documentation|guide|tutorial|readme|corpus)\b/.test(q)) return "docs";
+  if (/\b(feature|overview|what is|what does|getting started|about)\b/.test(q)) return "overview";
+  return "general";
+}
+
+function planForMode(mode: BriefMode, hasRepo: boolean, hasUrl: boolean): string[] {
+  const steps: string[] = [`plan:${mode}`];
+  if (mode === "compare") {
+    steps.push("gather:meta+readme for each repo", "synthesize:side-by-side", "eval:citations");
+    return steps;
+  }
+  if (hasUrl) steps.push("gather:public_url");
+  if (hasRepo) {
+    if (mode === "overview") steps.push("gather:overview", "optional:root");
+    else if (mode === "activity" || mode === "risks") steps.push("gather:issues+releases", "optional:workspace");
+    else if (mode === "architecture") steps.push("gather:overview+root", "optional:code");
+    else if (mode === "code") steps.push("gather:ask(code)", "optional:file");
+    else if (mode === "docs") steps.push(hasUrl ? "gather:url" : "gather:overview+corpus");
+    else steps.push("gather:ask(mixed)");
+  } else if (!hasUrl) {
+    steps.push("gather:corpus_or_ask_for_repo_or_url");
+  }
+  steps.push("draft:answer_from_evidence", "eval:rubric");
+  return steps;
+}
+
+async function fetchPublicUrl(url: string): Promise<{ url: string; text: string; note?: string }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("invalid URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("only http/https URLs are allowed");
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host.endsWith(".local")) {
+    throw new Error("local URLs are blocked");
+  }
+  const res = await fetch(parsed.toString(), {
+    headers: { "User-Agent": "brief-desk-mcp", Accept: "text/plain, text/markdown, text/html, */*" },
+    redirect: "follow",
+  });
+  if (!res.ok) throw new Error(`fetch failed (${res.status})`);
+  const ctype = res.headers.get("content-type") || "";
+  let raw = await res.text();
+  if (ctype.includes("html") || /<html[\s>]/i.test(raw)) {
+    raw = raw
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return {
+    url: parsed.toString(),
+    text: truncate(raw, 6000),
+    note: ctype.includes("html") ? "html_stripped" : undefined,
+  };
+}
+
+function evalDraft(question: string, draft: string, evidence: string): Record<string, unknown> {
+  const q = question.toLowerCase();
+  const d = draft.trim();
+  const e = evidence.toLowerCase();
+  const words = q
+    .replace(/[^\w\s./+-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 3)
+    .slice(0, 12);
+  const hit = words.filter((w) => d.toLowerCase().includes(w)).length;
+  const coverage = words.length ? hit / words.length : 0.5;
+  const hasCite =
+    /#\d+/.test(d) ||
+    /\b[\w.-]+\.(ts|tsx|js|jsx|py|go|rs|md|json|yml|yaml)\b/i.test(d) ||
+    /https?:\/\/github\.com\//i.test(d) ||
+    /`[^`]+`/.test(d);
+  const inventRisk =
+    /\b(always|never|guarantees?|100%|definitely)\b/i.test(d) && !hasCite && evidence.length < 200;
+  const grounded = evidence.length > 40 && (hasCite || coverage >= 0.35);
+  const completeness = Math.min(1, d.length / 280) * 0.5 + coverage * 0.5;
+  const citation = hasCite ? 1 : e.includes("readme") || e.includes("path") ? 0.4 : 0.15;
+  const groundedness = inventRisk ? 0.25 : grounded ? 0.85 : 0.45;
+  const overall = Number(((groundedness * 0.45 + completeness * 0.35 + citation * 0.2) * 100).toFixed(1));
+  const pass = overall >= 55 && !inventRisk;
+  const revisions: string[] = [];
+  if (!hasCite) revisions.push("Add citations: file paths, #issue/#PR, or source URLs from the evidence.");
+  if (coverage < 0.35) revisions.push("Address more of the user question terms explicitly.");
+  if (d.length < 120) revisions.push("Expand the answer with concrete evidence details.");
+  if (inventRisk) revisions.push("Remove absolute claims that are not backed by the pack.");
+  if (pass && revisions.length === 0) revisions.push("Ship as-is.");
+  return {
+    scores: {
+      groundedness: Number(groundedness.toFixed(2)),
+      completeness: Number(completeness.toFixed(2)),
+      citation: Number(citation.toFixed(2)),
+      overall,
+    },
+    pass,
+    revisions,
+    note: "Free heuristic rubric (no paid eval API). Use revisions before the final user-facing answer.",
+  };
+}
+
+async function runOrchestrate(args: {
+  question: string;
+  repo?: string;
+  repo_b?: string;
+  url?: string;
+  mode?: BriefMode;
+}): Promise<string> {
+  const mode = args.mode || classifyBriefMode(args.question);
+  const repo = normalizeGithubRepo(args.repo);
+  const repoB = normalizeGithubRepo(args.repo_b);
+  const url = args.url?.trim();
+  const plan = planForMode(mode, Boolean(repo), Boolean(url));
+  const stages: Record<string, unknown> = { plan, mode };
+
+  if (mode === "compare") {
+    if (!repo || !repoB) {
+      return JSON.stringify({
+        plan,
+        mode,
+        error: "compare mode needs repo and repo_b (owner/name)",
+        next: "Ask the user for both repositories, then call brief_orchestrate again.",
+      });
+    }
+    const [a, b] = await Promise.all([fetchRepoOverview(repo), fetchRepoOverview(repoB)]);
+    stages.gather = {
+      a: JSON.parse(a),
+      b: JSON.parse(b),
+    };
+    stages.guidance =
+      "Write a side-by-side comparison (purpose, stack, maturity, when to pick which). Cite README facts. Then call brief_eval on your draft.";
+  } else if (url) {
+    stages.gather = { url: await fetchPublicUrl(url) };
+    if (repo) {
+      stages.gather = {
+        ...(stages.gather as object),
+        repo: JSON.parse(await fetchRepoOverview(repo)),
+      };
+    }
+    stages.guidance =
+      "Answer using the URL text (and repo pack if present). Cite the URL. Then call brief_eval on your draft.";
+  } else if (repo) {
+    if (mode === "overview") stages.gather = JSON.parse(await fetchRepoOverview(repo));
+    else if (mode === "docs") {
+      stages.gather = {
+        overview: JSON.parse(await fetchRepoOverview(repo)),
+        hint: "If the user wants local docs only, also call brief_corpus.",
+      };
+    } else {
+      stages.gather = JSON.parse(await fetchRepoAsk(repo, args.question));
+    }
+    stages.guidance =
+      "Answer from gather only. Cite paths and #issue/#PR numbers. Then call brief_eval with question, draft, and a short evidence excerpt.";
+  } else {
+    stages.gather = {
+      note: "No repo/url. Call brief_corpus for the bundled sample, or ask the user for owner/name or a public docs URL.",
+    };
+    stages.guidance = "If using corpus, answer from brief_corpus output, then brief_eval.";
+  }
+
+  let text = JSON.stringify(stages, null, 2);
+  if (text.length > 14000) text = truncate(text, 14000);
+  return text;
+}
+
 function createBriefMcpServer(): McpServer {
   const server = new McpServer({
     name: "brief-desk-mcp",
-    version: "0.3.0",
+    version: "0.4.0",
   });
 
   server.tool(
@@ -532,8 +712,68 @@ function createBriefMcpServer(): McpServer {
   );
 
   server.tool(
+    "brief_orchestrate",
+    "Multi-source orchestrator (free): plan → gather → guidance. Modes cover GitHub repos, public docs URLs, local corpus hints, risks/architecture/activity/code, and two-repo compare. Prefer this for non-trivial questions.",
+    {
+      question: z.string().describe("User question"),
+      repo: z.string().optional().describe("Primary GitHub owner/name"),
+      repo_b: z.string().optional().describe("Second repo for compare mode"),
+      url: z.string().optional().describe("Public http(s) docs/page URL to fetch"),
+      mode: z
+        .enum(["overview", "risks", "architecture", "activity", "code", "docs", "compare", "general"])
+        .optional()
+        .describe("Override auto-detected brief mode"),
+    },
+    async ({ question, repo, repo_b, url, mode }) => {
+      try {
+        const text = await runOrchestrate({ question, repo, repo_b, url, mode });
+        return { content: [{ type: "text", text }] };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `brief_orchestrate failed: ${(e as Error).message}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "brief_eval",
+    "Free heuristic eval rubric for a draft answer (groundedness, completeness, citations). No paid eval API. Call after drafting; revise if pass=false.",
+    {
+      question: z.string(),
+      draft: z.string().describe("Candidate answer to score"),
+      evidence: z
+        .string()
+        .describe("Short excerpt or summary of the tool evidence used (not the full pack)"),
+    },
+    async ({ question, draft, evidence }) => ({
+      content: [{ type: "text", text: JSON.stringify(evalDraft(question, draft, evidence), null, 2) }],
+    }),
+  );
+
+  server.tool(
+    "brief_fetch_url",
+    "Fetch a public http(s) page or raw doc (HTML stripped). Use for docs sites, RFCs, blog posts, raw GitHub files. Localhost blocked.",
+    {
+      url: z.string().describe("https://... public URL"),
+    },
+    async ({ url }) => {
+      try {
+        const pack = await fetchPublicUrl(url);
+        return { content: [{ type: "text", text: JSON.stringify(pack, null, 2) }] };
+      } catch (e) {
+        return {
+          content: [{ type: "text", text: `brief_fetch_url failed: ${(e as Error).message}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
     "stack_info",
-    "Describe the brief-desk protocol stack (CopilotKit, AG-UI, MCP).",
+    "Describe the brief-desk protocol stack (CopilotKit, AG-UI, MCP, orchestrator, eval).",
     {},
     async () => ({
       content: [
@@ -544,11 +784,12 @@ function createBriefMcpServer(): McpServer {
               ui: "CopilotKit React chat",
               protocol: "AG-UI (agent ↔ UI stream via CopilotRuntime)",
               tools: "MCP Streamable HTTP on this server",
+              loop: "brief_orchestrate (plan→gather) → draft → brief_eval → revise",
               backends: [
-                "brief_repo_ask (README + code + issues + releases)",
-                "brief_repo_file",
-                "workspace-brief (activity)",
-                "corpus-brief (local docs)",
+                "GitHub (overview/ask/file/workspace)",
+                "public URL fetch",
+                "local corpus-brief",
+                "free heuristic eval rubric",
               ],
             },
             null,
@@ -579,8 +820,11 @@ app.get("/health", (_req, res) => {
     ok: true,
     mcp: "/mcp",
     service: "brief-desk-mcp",
-    version: "0.3.0",
+    version: "0.4.0",
     tools: [
+      "brief_orchestrate",
+      "brief_eval",
+      "brief_fetch_url",
       "brief_repo_ask",
       "brief_repo_overview",
       "brief_repo_file",

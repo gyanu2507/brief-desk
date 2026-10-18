@@ -1,6 +1,7 @@
 # brief-desk
 
-Agentic engineering desk: **CopilotKit** chat UI, **AG-UI** streaming protocol, **MCP** tools.
+Agentic briefing desk: **CopilotKit** UI, **AG-UI** streaming, **MCP** tools with an
+**orchestrate → draft → eval** loop. Sources are not GitHub-only.
 
 ```
 Browser (CopilotKit)
@@ -9,25 +10,23 @@ Browser (CopilotKit)
 Next.js CopilotRuntime + BuiltInAgent
     │  MCP Streamable HTTP
     ▼
-brief-desk MCP (:3108)
-    ├── workspace-brief  → any GitHub repo (or offline sample)
-    └── corpus-brief     → local .md/.txt corpus
+brief-desk MCP
+    ├── brief_orchestrate  → plan + gather (repo / URL / compare / modes)
+    ├── brief_eval         → free heuristic rubric
+    ├── brief_fetch_url    → public docs pages
+    ├── GitHub tools       → overview / ask / file / workspace-brief
+    └── brief_corpus       → local .md/.txt sample
 ```
-
-Not a toy chatbot wrapper. The model only answers after calling MCP tools that hit real brief backends.
 
 ## Setup
 
-Uses **Groq** by default (free tier, OpenAI-compatible). No OpenAI account required.
+Uses **Groq** by default (free tier). No paid eval APIs.
 
 ```bash
 cd brief-desk
 cp .env.example .env.local
-# set OPENAI_API_KEY to your Groq key (https://console.groq.com)
-# OPENAI_BASE_URL and COPILOTKIT_AGENT_MODEL are already set for Groq in .env.example
+# OPENAI_API_KEY = Groq key (https://console.groq.com)
 npm install
-
-# tool backends (once)
 pip install -e ../workspace-brief
 pip install -e ../corpus-brief
 ```
@@ -38,40 +37,35 @@ pip install -e ../corpus-brief
 npm run dev
 ```
 
-- UI: http://localhost:3000  
-- MCP health: http://127.0.0.1:3108/health  
-- MCP endpoint: http://127.0.0.1:3108/mcp  
+- UI: http://localhost:3000
+- MCP health: http://127.0.0.1:3108/health
 
-In the UI, set **GitHub repo** to any `owner/name` (saved in the browser).
+### Example asks
 
-Default live path is **`brief_repo_ask`**: one pack with README, root tree, matching
-issues/PRs, code-search file previews, and releases. Follow-ups can use
-`brief_repo_file`, `brief_workspace`, or `brief_repo_overview`.
+- Repo features / risks / architecture (optional `owner/name` in the sidebar)
+- `compare facebook/react vs vuejs/core`
+- `summarize https://modelcontextprotocol.io/docs/...`
+- Local corpus sample with no repo set
 
-`brief_corpus` is only the bundled local doc sample. Without a repo, activity
-questions can still use the offline fixture via `brief_workspace`.
+Default loop: **`brief_orchestrate`** then draft, then **`brief_eval`**. Revise if `pass=false`.
 
-**Code search requires `GITHUB_TOKEN` on the MCP host** (GitHub’s rule). README /
-issues still work with lower unauthenticated limits.
-
-On the MCP host (local or Render), set `GITHUB_TOKEN` so public repos are not rate-limited quickly. Do **not** set `BRIEF_ALLOWED_REPOS` if you want any repo. Keep `BRIEF_SOURCE=fixture` as the no-repo fallback.
+`GITHUB_TOKEN` on the MCP host unlocks code search and higher GitHub rate limits.
 
 ## Verify
 
 ```bash
 npm run test:mcp
-which brief && brief --source fixture "what are the main risks?" | head
-which corpus-brief && corpus-brief "checkout promo" | head
+curl -s http://127.0.0.1:3108/health
 ```
 
 ## Stack
 
-| Layer | Package / project |
+| Layer | Notes |
 |---|---|
-| UI | `@copilotkit/react-core`, `@copilotkit/react-ui` |
-| Runtime | `@copilotkit/runtime` (`BuiltInAgent` + `mcpServers`) |
-| Protocol | AG-UI (`@ag-ui/client` via CopilotKit) |
-| Tools | `@modelcontextprotocol/sdk` Streamable HTTP server |
-| Backends | [workspace-brief](https://github.com/gyanu2507/workspace-brief), [corpus-brief](https://github.com/gyanu2507/corpus-brief) |
+| UI | CopilotKit React chat |
+| Runtime | BuiltInAgent + MCP over AG-UI |
+| Orchestrator | `brief_orchestrate` modes: overview, risks, architecture, activity, code, docs, compare, general |
+| Eval | Free rubric (groundedness / completeness / citations) |
+| Sources | GitHub API, public HTTP(S) URLs, corpus-brief, workspace-brief |
 
 MIT.
