@@ -96,8 +96,8 @@ const PIPELINE = [
   { id: "ui", label: "CopilotKit UI" },
   { id: "api", label: "/api/copilotkit" },
   { id: "agent", label: "BuiltInAgent (Groq)" },
-  { id: "mcp", label: "MCP :Render" },
-  { id: "backend", label: "GitHub / brief CLI" },
+  { id: "mcp", label: "Python MCP" },
+  { id: "backend", label: "GitHub / corpus" },
 ] as const;
 
 function activeStages(entries: LogEntry[], inProgress: boolean): Set<string> {

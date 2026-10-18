@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCopilotChatInternal, useCopilotReadable } from "@copilotkit/react-core";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { AgentLog } from "./AgentLog";
+import { BrandMark } from "./BrandMark";
 import { LoggingMessages, TranscriptProvider } from "./transcript-bridge";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { renderTemplate } from "../lib/template";
@@ -469,12 +470,32 @@ export default function Page() {
     <TranscriptProvider>
       <main className="desk-shell">
         <aside className="desk-controls">
-          <p style={{ margin: 0, fontSize: 11, letterSpacing: "0.08em", color: "var(--muted)" }}>
-            BRIEF-DESK
-          </p>
-          <h1 style={{ margin: "6px 0 6px", fontSize: 22, lineHeight: 1.2 }}>
-            Multi-source briefing
-          </h1>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              marginBottom: 6,
+            }}
+          >
+            <BrandMark size={32} />
+            <div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 11,
+                  letterSpacing: "0.08em",
+                  color: "var(--muted)",
+                  fontWeight: 600,
+                }}
+              >
+                BRIEF-DESK
+              </p>
+              <h1 style={{ margin: "2px 0 0", fontSize: 20, lineHeight: 1.2 }}>
+                Multi-source briefing
+              </h1>
+            </div>
+          </div>
           <p style={{ margin: "0 0 12px", color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>
             One repo. GitHub, docs URLs, compare, or bundled corpus. Run agent drafts a brief with
             citations.
