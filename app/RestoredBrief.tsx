@@ -1,6 +1,6 @@
 "use client";
 
-import { Markdown } from "@copilotkit/react-ui";
+import { SafeMarkdown } from "./SafeMarkdown";
 
 type Props = {
   user: string;
@@ -13,7 +13,7 @@ function stripMetaFooter(markdown: string): string {
 }
 
 /**
- * Stable History restore UI with real markdown (not raw **asterisks**).
+ * Stable History restore UI with sanitized markdown (not raw **asterisks**).
  */
 export function RestoredBrief({ user, assistant }: Props) {
   const body = stripMetaFooter(assistant);
@@ -27,7 +27,7 @@ export function RestoredBrief({ user, assistant }: Props) {
       <div className="restored-brief-assistant">
         <span className="restored-brief-label">Brief</span>
         <div className="restored-brief-md">
-          <Markdown content={body} />
+          <SafeMarkdown content={body} />
         </div>
       </div>
       <p className="restored-brief-note">

@@ -15,7 +15,7 @@
     "test:mcp": "tsx --test mcp/src/plan.test.ts mcp/src/corpus.test.ts",
     "test:mcp:py": "cd backend && uv run pytest -q",
     "test:prompts": "tsx --test lib/prompts.test.ts",
-    "test:unit": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts mcp/src/corpus.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/format-brief.test.ts lib/brief-run.test.ts lib/brief-run.abort.test.ts lib/brief-run-repos.test.ts lib/brief-history.test.ts lib/plan-board.test.ts lib/select-options.test.ts lib/repo-suggest.test.ts lib/github-trending.test.ts lib/session-link.test.ts lib/sync-merge.test.ts lib/abort.test.ts lib/mcp-client.abort.test.ts lib/mcp-client.contract.test.ts lib/brief-run-api.contract.test.ts lib/citations.test.ts lib/eval-display.test.ts",
+    "test:unit": "tsx --test mcp/src/server.test.ts mcp/src/plan.test.ts mcp/src/corpus.test.ts lib/prompts.test.ts lib/fallback-ui.test.ts lib/format-brief.test.ts lib/brief-run.test.ts lib/brief-run.abort.test.ts lib/brief-run-repos.test.ts lib/brief-history.test.ts lib/plan-board.test.ts lib/select-options.test.ts lib/repo-suggest.test.ts lib/github-trending.test.ts lib/session-link.test.ts lib/sync-merge.test.ts lib/abort.test.ts lib/mcp-client.abort.test.ts lib/mcp-client.contract.test.ts lib/brief-run-api.contract.test.ts lib/citations.test.ts lib/eval-display.test.ts lib/safe-url.test.ts",
     "test:e2e": "playwright test",
     "test:golden": "cd backend && uv run python scripts/run_golden_benchmark.py",
     "test": "npm run test:mcp:py && npm run test:unit"
