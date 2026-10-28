@@ -9,6 +9,7 @@ import { AgentLog } from "./AgentLog";
 import { AuthButton } from "./AuthButton";
 import { BrandMark } from "./BrandMark";
 import { BriefExportBar } from "./BriefExportBar";
+import { BriefEvalPanel } from "./BriefEval";
 import { BriefGroundingPanel } from "./BriefGrounding";
 import { BriefHistory } from "./BriefHistory";
 import { PlanBoard } from "./PlanBoard";
@@ -38,6 +39,11 @@ import {
   parseGrounding,
   type BriefGrounding,
 } from "../lib/citations";
+import {
+  formatEvalMarkdown,
+  parseEvalView,
+  type EvalView,
+} from "../lib/eval-display";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
 import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
@@ -269,6 +275,7 @@ function DeskPage() {
   const [history, setHistory] = useState<BriefHistoryEntry[]>([]);
   const [lastMarkdown, setLastMarkdown] = useState<string | null>(null);
   const [lastGrounding, setLastGrounding] = useState<BriefGrounding | null>(null);
+  const [lastEvalView, setLastEvalView] = useState<EvalView | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [cloudUserId, setCloudUserId] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -884,6 +891,7 @@ function DeskPage() {
     setPipelineBusy(false);
     setRunError(null);
     setLastGrounding(null);
+    setLastEvalView(null);
     emitPlan({
       active: false,
       note: "Cancelled",
@@ -1042,10 +1050,13 @@ function DeskPage() {
           .filter(Boolean)
           .join(" · ");
         const grounding = parseGrounding(body.eval);
+        const evalView = parseEvalView(body.eval);
         setLastGrounding(grounding);
+        setLastEvalView(evalView);
         const markdown =
           formatBriefMarkdown(body.answer, meta) +
-          (grounding ? formatGroundingMarkdown(grounding) : "");
+          (grounding ? formatGroundingMarkdown(grounding) : "") +
+          (evalView ? formatEvalMarkdown(evalView) : "");
         setLastMarkdown(markdown);
         skipNextChatHistory.current = true;
         setHistory((prev) =>
@@ -1107,6 +1118,7 @@ function DeskPage() {
         if (aborted) {
           setRunError(null);
           setLastGrounding(null);
+          setLastEvalView(null);
           await appendMessage(
             new TextMessage({
               role: Role.Assistant,
@@ -1119,6 +1131,7 @@ function DeskPage() {
         const message = e instanceof Error ? e.message : "brief-run failed";
         setRunError(message);
         setLastGrounding(null);
+        setLastEvalView(null);
         emitPlan({
           active: false,
           note: message,
@@ -1194,6 +1207,7 @@ function DeskPage() {
       if (entry.tagB) setTagB(entry.tagB);
       setLastMarkdown(entry.markdown);
       setLastGrounding(null);
+      setLastEvalView(null);
       skipNextChatHistory.current = true;
       const { question } = chatMessagesFromHistory(entry);
       setPinned({
@@ -1632,6 +1646,7 @@ function DeskPage() {
           <PlanBoard />
 
           <BriefGroundingPanel grounding={lastGrounding} />
+          <BriefEvalPanel evalView={lastEvalView} />
 
           <button
             type="button"

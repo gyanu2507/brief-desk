@@ -793,6 +793,82 @@ select.field option,
   border: 1px solid var(--line);
 }
 
+.eval-panel {
+  margin: 12px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--query-bg);
+}
+
+.eval-summary {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.eval-scores {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+
+.eval-scores li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--chip-bg) 80%, transparent);
+}
+
+.eval-scores span {
+  color: var(--muted);
+}
+
+.eval-scores strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-block {
+  margin-top: 8px;
+}
+
+.eval-block-title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.eval-block ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.eval-block li {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.eval-limits {
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  background: color-mix(in srgb, var(--muted) 6%, transparent);
+}
+
 .plan-board {
   margin: 12px 0 4px;
   padding: 12px;
