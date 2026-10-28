@@ -73,6 +73,9 @@ export async function runBriefViaApi(
               error?: string;
               ms?: number;
               eval?: unknown;
+              runId?: string;
+              errorCategory?: BriefRunResult["errorCategory"];
+              observability?: BriefRunResult["observability"];
               repos?: BriefRunResult["repos"];
             };
             if (ev.type === "step" && typeof ev.step === "string") {
@@ -86,6 +89,9 @@ export async function runBriefViaApi(
                 error: ev.error,
                 ms: typeof ev.ms === "number" ? ev.ms : 0,
                 eval: ev.eval,
+                runId: typeof ev.runId === "string" ? ev.runId : undefined,
+                errorCategory: ev.errorCategory,
+                observability: ev.observability,
                 ...(ev.repos?.length ? { repos: ev.repos } : {}),
               };
             }

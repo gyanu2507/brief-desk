@@ -7,6 +7,15 @@ import {
 } from "./abort";
 import { callMcpTool } from "./mcp-client";
 import { fetchGithubTrending, isMcpToolMissing } from "./github-trending";
+import {
+  actionableErrorMessage,
+  categorizeError,
+  logRunEvent,
+  newRunId,
+  type ModelUsage,
+  type RunObservability,
+  type ToolTiming,
+} from "./run-observability";
 
 export type BriefRunInput = {
   source:
@@ -47,6 +56,10 @@ export type BriefRunResult = {
   steps: string[];
   eval?: unknown;
   error?: string;
+  /** Stable id for logs / support. */
+  runId?: string;
+  errorCategory?: RunObservability["errorCategory"];
+  observability?: RunObservability;
   ms: number;
   /** Structured hits when source was trending (or auto invent trending). */
   repos?: BriefRunRepoHit[];
@@ -123,13 +136,35 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 type McpCall = Awaited<ReturnType<typeof callMcpTool>>;
 
+type ObsState = {
+  runId: string;
+  toolTimings: ToolTiming[];
+  modelUsage: ModelUsage;
+};
+
 async function mcp(
   name: string,
   args: Record<string, unknown>,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  obs: ObsState,
 ): Promise<McpCall> {
   throwIfAborted(signal);
   const result = await callMcpTool(name, args, { signal });
+  obs.toolTimings.push({
+    tool: name,
+    ms: result.ms,
+    ok: result.ok,
+    error: result.error,
+  });
+  logRunEvent("mcp_tool", {
+    runId: obs.runId,
+    tool: name,
+    ms: result.ms,
+    ok: result.ok,
+    cancelled: result.cancelled,
+    timedOut: result.timedOut,
+    error: result.error ? result.error.slice(0, 160) : undefined,
+  });
   if (result.cancelled) {
     throw new DOMException("brief-run cancelled", "AbortError");
   }
@@ -142,13 +177,15 @@ async function mcp(
 async function draftWithGroq(
   question: string,
   evidence: string,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  obs: ObsState,
 ): Promise<string> {
   const key = process.env.OPENAI_API_KEY;
   const base = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
   const model = resolveModelId();
   if (!key) throw new Error("OPENAI_API_KEY missing for brief-run draft");
 
+  const userContent = `Question:\n${question}\n\nEvidence pack (JSON/text):\n${truncate(evidence, 8000)}\n\nWrite the final brief now.`;
   const payload = {
     model,
     messages: [
@@ -159,7 +196,7 @@ async function draftWithGroq(
       },
       {
         role: "user",
-        content: `Question:\n${question}\n\nEvidence pack (JSON/text):\n${truncate(evidence, 8000)}\n\nWrite the final brief now.`,
+        content: userContent,
       },
     ],
     // Keep OTPM headroom on Groq free tier.
@@ -170,6 +207,7 @@ async function draftWithGroq(
   let lastErr = "draft failed";
   for (let attempt = 0; attempt < 4; attempt++) {
     throwIfAborted(signal);
+    const t0 = Date.now();
     const { signal: attemptSignal, clear } = withTimeout(45_000, signal);
     let res: Response;
     try {
@@ -189,12 +227,34 @@ async function draftWithGroq(
       choices?: Array<{ message?: { content?: string } }>;
       error?: { message?: string };
     };
+    const ms = Date.now() - t0;
+    obs.modelUsage.calls += 1;
+    obs.modelUsage.model = model;
+    obs.modelUsage.promptChars += userContent.length;
+    obs.modelUsage.ms += ms;
     if (res.ok) {
       const content = body.choices?.[0]?.message?.content?.trim();
       if (!content) throw new Error("draft model returned empty content");
+      obs.modelUsage.completionChars += content.length;
+      logRunEvent("model_draft", {
+        runId: obs.runId,
+        model,
+        ms,
+        ok: true,
+        attempt,
+        completionChars: content.length,
+      });
       return content;
     }
     lastErr = body.error?.message || `draft failed (${res.status})`;
+    logRunEvent("model_draft", {
+      runId: obs.runId,
+      model,
+      ms,
+      ok: false,
+      attempt,
+      error: lastErr.slice(0, 160),
+    });
     const retryable = res.status === 429 || /rate limit|try again/i.test(lastErr);
     if (!retryable || attempt === 3) break;
     throwIfAborted(signal);
@@ -232,10 +292,17 @@ export async function runBriefPipeline(
   const steps: string[] = [];
   const onStep = opts?.onStep;
   const signal = opts?.signal;
+  const runId = newRunId();
+  const obs: ObsState = {
+    runId,
+    toolTimings: [],
+    modelUsage: { model: resolveModelId(), calls: 0, promptChars: 0, completionChars: 0, ms: 0 },
+  };
   const question = (input.goal || input.question).trim();
   if (question.length < 4) {
-    return { ok: false, answer: "", steps, error: "question/goal required", ms: 0 };
+    return { ok: false, answer: "", steps, error: "question/goal required", runId, ms: 0 };
   }
+  logRunEvent("brief_run_start", { runId, source: input.source });
 
   let evidence = "";
   try {
@@ -243,16 +310,17 @@ export async function runBriefPipeline(
 
     if (input.source === "auto") {
       pushStep(steps, "brief_auto", onStep);
-      const auto = await mcp("brief_auto", { goal: question }, signal);
+      const auto = await mcp("brief_auto", { goal: question }, signal, obs);
       if (!auto.ok) {
         pushStep(steps, "brief_plan", onStep);
-        const plan = await mcp("brief_plan", { goal: question }, signal);
+        const plan = await mcp("brief_plan", { goal: question }, signal, obs);
         if (!plan.ok) {
           return {
             ok: false,
             answer: "",
             steps,
             error: auto.error || plan.error || "auto gather failed",
+            runId,
             ms: Date.now() - t0,
           };
         }
@@ -278,6 +346,7 @@ export async function runBriefPipeline(
             mode: invented.mode || undefined,
           },
           signal,
+          obs,
         );
         if (!orch.ok) {
           return {
@@ -285,6 +354,7 @@ export async function runBriefPipeline(
             answer: "",
             steps,
             error: orch.error || "orchestrate failed",
+            runId,
             ms: Date.now() - t0,
           };
         }
@@ -294,7 +364,7 @@ export async function runBriefPipeline(
       }
     } else if (input.source === "corpus") {
       pushStep(steps, "brief_corpus", onStep);
-      const corpus = await mcp("brief_corpus", { question }, signal);
+      const corpus = await mcp("brief_corpus", { question }, signal, obs);
       if (!corpus.ok) {
         return {
           ok: false,
@@ -315,6 +385,7 @@ export async function runBriefPipeline(
           max_results: 10,
         },
         signal,
+        obs,
       );
       if (trend.ok) {
         evidence = trend.text;
@@ -333,6 +404,7 @@ export async function runBriefPipeline(
             answer: "",
             steps,
             error: scraped.error || trend.error || "trending failed",
+            runId,
             ms: Date.now() - t0,
           };
         }
@@ -360,7 +432,7 @@ export async function runBriefPipeline(
       }
       const tool = registry === "pypi" ? "brief_pypi_package" : "brief_npm_package";
       pushStep(steps, tool, onStep);
-      const pkg = await mcp(tool, { name }, signal);
+      const pkg = await mcp(tool, { name }, signal, obs);
       if (!pkg.ok) {
         return {
           ok: false,
@@ -402,6 +474,7 @@ export async function runBriefPipeline(
           tag_b: b,
         },
         signal,
+        obs,
       );
       if (!diff.ok) {
         return {
@@ -425,6 +498,7 @@ export async function runBriefPipeline(
           mode: input.source === "compare" ? "compare" : input.mode || undefined,
         },
         signal,
+        obs,
       );
       if (!orch.ok) {
         return {
@@ -440,7 +514,7 @@ export async function runBriefPipeline(
 
     throwIfAborted(signal);
     pushStep(steps, "draft", onStep);
-    let draft = await draftWithGroq(question, evidence, signal);
+    let draft = await draftWithGroq(question, evidence, signal, obs);
 
     throwIfAborted(signal);
     pushStep(steps, "brief_eval", onStep);
@@ -452,6 +526,7 @@ export async function runBriefPipeline(
         evidence: truncate(evidence, 1200),
       },
       signal,
+      obs,
     );
     let evalObj: unknown = ev.text;
     try {
@@ -472,6 +547,7 @@ export async function runBriefPipeline(
         `${question}\n\nRevise this draft using the evidence. Keep citations that appear in the evidence pack.\n\nDraft:\n${draft}`,
         evidence,
         signal,
+        obs,
       );
       throwIfAborted(signal);
       pushStep(steps, "brief_eval", onStep);
@@ -483,6 +559,7 @@ export async function runBriefPipeline(
           evidence: truncate(evidence, 1200),
         },
         signal,
+        obs,
       );
       try {
         evalObj = JSON.parse(ev2.text);
@@ -492,29 +569,57 @@ export async function runBriefPipeline(
     }
 
     const repos = extractReposFromEvidence(evidence);
+    const observability: RunObservability = {
+      runId,
+      toolTimings: obs.toolTimings,
+      modelUsage: obs.modelUsage.calls ? obs.modelUsage : null,
+    };
+    logRunEvent("brief_run_ok", {
+      runId,
+      ms: Date.now() - t0,
+      steps,
+      tools: obs.toolTimings.length,
+      modelCalls: obs.modelUsage.calls,
+    });
     return {
       ok: true,
       answer: draft,
       steps,
       eval: evalObj,
+      runId,
+      observability,
       ms: Date.now() - t0,
       ...(repos.length ? { repos } : {}),
     };
   } catch (e) {
-    if (isAbortError(e)) {
-      return {
-        ok: false,
-        answer: "",
-        steps,
-        error: CANCELLED_MESSAGE,
-        ms: Date.now() - t0,
-      };
-    }
+    const raw = isAbortError(e)
+      ? CANCELLED_MESSAGE
+      : e instanceof Error
+        ? e.message
+        : "brief-run failed";
+    const errorCategory = categorizeError(raw);
+    const error = actionableErrorMessage(errorCategory, raw, runId);
+    const observability: RunObservability = {
+      runId,
+      toolTimings: obs.toolTimings,
+      modelUsage: obs.modelUsage.calls ? obs.modelUsage : null,
+      errorCategory,
+    };
+    logRunEvent("brief_run_error", {
+      runId,
+      ms: Date.now() - t0,
+      errorCategory,
+      error: raw.slice(0, 200),
+      steps,
+    });
     return {
       ok: false,
       answer: "",
       steps,
-      error: e instanceof Error ? e.message : "brief-run failed",
+      error,
+      runId,
+      errorCategory,
+      observability,
       ms: Date.now() - t0,
     };
   }

@@ -11,7 +11,9 @@ test("runBriefPipeline returns CANCELLED_MESSAGE when signal is pre-aborted", as
     { signal: c.signal },
   );
   assert.equal(result.ok, false);
-  assert.equal(result.error, CANCELLED_MESSAGE);
+  assert.ok(result.error?.startsWith(CANCELLED_MESSAGE));
+  assert.ok(result.runId);
+  assert.equal(result.errorCategory, "cancelled");
 });
 
 test("runBriefPipeline rejects empty question without calling MCP", async () => {
