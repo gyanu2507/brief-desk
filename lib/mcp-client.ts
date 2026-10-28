@@ -1,8 +1,17 @@
+import {
+  isAbortError,
+  throwIfAborted,
+  withTimeout,
+  TIMEOUT_MESSAGE,
+} from "./abort";
+
 type RpcResult = {
   ok: boolean;
   text: string;
   error?: string;
   ms: number;
+  cancelled?: boolean;
+  timedOut?: boolean;
 };
 
 function parseSseJson(raw: string): unknown {
@@ -21,15 +30,16 @@ function parseSseJson(raw: string): unknown {
 export async function callMcpTool(
   name: string,
   args: Record<string, unknown>,
-  opts?: { mcpUrl?: string; timeoutMs?: number },
+  opts?: { mcpUrl?: string; timeoutMs?: number; signal?: AbortSignal },
 ): Promise<RpcResult> {
   const mcpUrl = opts?.mcpUrl || process.env.MCP_URL || "http://127.0.0.1:3108/mcp";
   const timeoutMs = opts?.timeoutMs ?? 45_000;
   const t0 = Date.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const { signal, clear } = withTimeout(timeoutMs, opts?.signal);
 
   try {
+    throwIfAborted(opts?.signal);
+
     const initRes = await fetch(mcpUrl, {
       method: "POST",
       headers: {
@@ -46,10 +56,12 @@ export async function callMcpTool(
           clientInfo: { name: "brief-desk-api", version: "0.1.0" },
         },
       }),
-      signal: controller.signal,
+      signal,
     });
     const sid = initRes.headers.get("mcp-session-id") || undefined;
     await initRes.text();
+
+    throwIfAborted(opts?.signal);
 
     await fetch(mcpUrl, {
       method: "POST",
@@ -59,8 +71,10 @@ export async function callMcpTool(
         ...(sid ? { "mcp-session-id": sid } : {}),
       },
       body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
-      signal: controller.signal,
+      signal,
     });
+
+    throwIfAborted(opts?.signal);
 
     const callRes = await fetch(mcpUrl, {
       method: "POST",
@@ -75,7 +89,7 @@ export async function callMcpTool(
         method: "tools/call",
         params: { name, arguments: args },
       }),
-      signal: controller.signal,
+      signal,
     });
     const raw = await callRes.text();
     const json = parseSseJson(raw) as {
@@ -101,6 +115,17 @@ export async function callMcpTool(
       ms: Date.now() - t0,
     };
   } catch (e) {
+    if (isAbortError(e)) {
+      const timedOut = opts?.signal ? !opts.signal.aborted : true;
+      return {
+        ok: false,
+        text: "",
+        error: timedOut ? TIMEOUT_MESSAGE : "MCP call cancelled",
+        ms: Date.now() - t0,
+        cancelled: !timedOut,
+        timedOut,
+      };
+    }
     return {
       ok: false,
       text: "",
@@ -108,6 +133,6 @@ export async function callMcpTool(
       ms: Date.now() - t0,
     };
   } finally {
-    clearTimeout(timer);
+    clear();
   }
 }
