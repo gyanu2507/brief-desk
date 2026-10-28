@@ -30,6 +30,7 @@ from brief_desk_mcp.discover import (
 from brief_desk_mcp.orchestrate import run_auto, run_orchestrate
 from brief_desk_mcp.packages import diff_repo_releases, lookup_npm, lookup_pypi
 from brief_desk_mcp.plan import build_autonomous_plan, normalize_github_repo
+from brief_desk_mcp.security import validate_tool_string
 from brief_desk_mcp.web_search import search_web
 
 TOOLS = [
@@ -185,7 +186,13 @@ async def brief_orchestrate(
     description="Free heuristic eval rubric for a draft answer.",
 )
 async def brief_eval(question: str, draft: str, evidence: str) -> str:
-    return _json(eval_draft(question, draft, evidence))
+    try:
+        q = validate_tool_string(question, name="question", max_len=4_000)
+        d = validate_tool_string(draft, name="draft", max_len=20_000)
+        e = validate_tool_string(evidence, name="evidence", max_len=20_000)
+    except RuntimeError as err:
+        raise ToolError(str(err)) from err
+    return _json(eval_draft(q, d, e))
 
 
 @mcp.tool(
@@ -194,6 +201,7 @@ async def brief_eval(question: str, draft: str, evidence: str) -> str:
 )
 async def brief_fetch_url(url: str) -> str:
     try:
+        validate_tool_string(url, name="url", max_len=2048)
         return _json(await fetch_public_url(url))
     except Exception as e:
         raise ToolError(f"brief_fetch_url failed: {e}") from e
@@ -205,7 +213,8 @@ async def brief_fetch_url(url: str) -> str:
 )
 async def brief_web_search(query: str, max_results: int = 6) -> str:
     try:
-        return _json(await search_web(query, max_results=max(1, min(max_results, 10))))
+        q = validate_tool_string(query, name="query", max_len=500)
+        return _json(await search_web(q, max_results=max(1, min(max_results, 10))))
     except Exception as e:
         raise ToolError(f"brief_web_search failed: {e}") from e
 
@@ -242,9 +251,10 @@ async def brief_github_search(
     max_results: int = 8,
 ) -> str:
     try:
+        q = validate_tool_string(query, name="query", max_len=500)
         return _json(
             await search_github_repos(
-                query,
+                q,
                 language=language,
                 sort=sort,
                 max_results=max(1, min(max_results, 20)),
