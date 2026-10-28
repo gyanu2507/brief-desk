@@ -719,6 +719,80 @@ select.field option,
   margin-top: 8px;
 }
 
+.grounding-panel {
+  margin: 12px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--query-bg);
+}
+
+.grounding-summary {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.grounding-block {
+  margin-top: 8px;
+}
+
+.grounding-block-title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.grounding-block ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.grounding-block li {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.grounding-block a {
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.grounding-kind {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.grounding-verified {
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #16a34a 8%, transparent);
+  border: 1px solid color-mix(in srgb, #16a34a 28%, var(--line));
+}
+
+.grounding-warnings {
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d97706 10%, transparent);
+  border: 1px solid color-mix(in srgb, #d97706 35%, var(--line));
+}
+
+.grounding-links {
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
 .plan-board {
   margin: 12px 0 4px;
   padding: 12px;

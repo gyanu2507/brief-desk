@@ -9,6 +9,7 @@ import { AgentLog } from "./AgentLog";
 import { AuthButton } from "./AuthButton";
 import { BrandMark } from "./BrandMark";
 import { BriefExportBar } from "./BriefExportBar";
+import { BriefGroundingPanel } from "./BriefGrounding";
 import { BriefHistory } from "./BriefHistory";
 import { PlanBoard } from "./PlanBoard";
 import { ReleaseDiffPanel } from "./ReleaseDiffPanel";
@@ -32,6 +33,11 @@ import {
 import { CANCELLED_MESSAGE } from "../lib/abort";
 import { evalOverallScore } from "../lib/brief-run";
 import { runBriefViaApi } from "../lib/brief-run-client";
+import {
+  formatGroundingMarkdown,
+  parseGrounding,
+  type BriefGrounding,
+} from "../lib/citations";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
 import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
@@ -262,6 +268,7 @@ function DeskPage() {
   const [saved, setSaved] = useState<SavedBrief[]>([]);
   const [history, setHistory] = useState<BriefHistoryEntry[]>([]);
   const [lastMarkdown, setLastMarkdown] = useState<string | null>(null);
+  const [lastGrounding, setLastGrounding] = useState<BriefGrounding | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [cloudUserId, setCloudUserId] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -876,6 +883,7 @@ function DeskPage() {
     setBusyNote(null);
     setPipelineBusy(false);
     setRunError(null);
+    setLastGrounding(null);
     emitPlan({
       active: false,
       note: "Cancelled",
@@ -1033,7 +1041,11 @@ function DeskPage() {
         const meta = [`${(body.steps || []).join(" → ")}`, score, `${body.ms ?? "?"}ms`]
           .filter(Boolean)
           .join(" · ");
-        const markdown = formatBriefMarkdown(body.answer, meta);
+        const grounding = parseGrounding(body.eval);
+        setLastGrounding(grounding);
+        const markdown =
+          formatBriefMarkdown(body.answer, meta) +
+          (grounding ? formatGroundingMarkdown(grounding) : "");
         setLastMarkdown(markdown);
         skipNextChatHistory.current = true;
         setHistory((prev) =>
@@ -1083,6 +1095,7 @@ function DeskPage() {
               ms: body.ms,
               repos: body.repos,
               evalScore,
+              grounding,
             },
           }),
         );
@@ -1093,6 +1106,7 @@ function DeskPage() {
           (e instanceof Error && e.message === CANCELLED_MESSAGE);
         if (aborted) {
           setRunError(null);
+          setLastGrounding(null);
           await appendMessage(
             new TextMessage({
               role: Role.Assistant,
@@ -1104,6 +1118,7 @@ function DeskPage() {
         }
         const message = e instanceof Error ? e.message : "brief-run failed";
         setRunError(message);
+        setLastGrounding(null);
         emitPlan({
           active: false,
           note: message,
@@ -1178,6 +1193,7 @@ function DeskPage() {
       if (entry.tagA) setTagA(entry.tagA);
       if (entry.tagB) setTagB(entry.tagB);
       setLastMarkdown(entry.markdown);
+      setLastGrounding(null);
       skipNextChatHistory.current = true;
       const { question } = chatMessagesFromHistory(entry);
       setPinned({
@@ -1614,6 +1630,8 @@ function DeskPage() {
           ) : null}
 
           <PlanBoard />
+
+          <BriefGroundingPanel grounding={lastGrounding} />
 
           <button
             type="button"
