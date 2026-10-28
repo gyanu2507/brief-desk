@@ -469,10 +469,26 @@ export async function runBriefPipeline(
       throwIfAborted(signal);
       pushStep(steps, "revise", onStep);
       draft = await draftWithGroq(
-        `${question}\n\nRevise this draft using the evidence. Keep citations.\n\nDraft:\n${draft}`,
+        `${question}\n\nRevise this draft using the evidence. Keep citations that appear in the evidence pack.\n\nDraft:\n${draft}`,
         evidence,
         signal,
       );
+      throwIfAborted(signal);
+      pushStep(steps, "brief_eval", onStep);
+      const ev2 = await mcp(
+        "brief_eval",
+        {
+          question,
+          draft,
+          evidence: truncate(evidence, 1200),
+        },
+        signal,
+      );
+      try {
+        evalObj = JSON.parse(ev2.text);
+      } catch {
+        evalObj = ev2.text;
+      }
     }
 
     const repos = extractReposFromEvidence(evidence);
