@@ -1,8 +1,12 @@
 import { CANCELLED_MESSAGE } from "../../../lib/abort";
 import { runBriefPipeline, type BriefRunInput } from "../../../lib/brief-run";
+import { briefRunGate, rateLimit } from "../../../lib/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+
+const RATE_LIMIT = Math.max(1, Number(process.env.BRIEF_RUN_RATE_LIMIT || 8));
+const RATE_WINDOW_MS = Math.max(1_000, Number(process.env.BRIEF_RUN_RATE_WINDOW_MS || 60_000));
 
 function wantsStream(req: Request, body: BriefRunInput & { stream?: boolean }): boolean {
   if (body.stream === true) return true;
@@ -12,6 +16,12 @@ function wantsStream(req: Request, body: BriefRunInput & { stream?: boolean }): 
 
 function sse(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
+}
+
+function clientKey(req: Request): string {
+  const fwd = req.headers.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0]?.trim() || "anon";
+  return req.headers.get("x-real-ip") || "anon";
 }
 
 /** Abort when the client disconnects or cancels the fetch. */
@@ -32,9 +42,38 @@ function clientSignal(req: Request): AbortSignal {
   return ac.signal;
 }
 
+function isCancelledError(error?: string): boolean {
+  return Boolean(error && error.startsWith(CANCELLED_MESSAGE));
+}
+
 /** Deterministic Run agent path: gather → draft → eval (JSON or SSE). */
 export async function POST(req: Request) {
+  const limited = rateLimit({
+    key: `brief-run:${clientKey(req)}`,
+    limit: RATE_LIMIT,
+    windowMs: RATE_WINDOW_MS,
+  });
+  if (!limited.ok) {
+    return Response.json(
+      {
+        ok: false,
+        error: `Rate limit exceeded. Retry in ${limited.retryAfterSec}s.`,
+        errorCategory: "rate_limit",
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(limited.retryAfterSec),
+          "X-RateLimit-Limit": String(RATE_LIMIT),
+          "X-RateLimit-Remaining": "0",
+        },
+      },
+    );
+  }
+
+  let release: (() => void) | null = null;
   try {
+    release = await briefRunGate.acquire();
     const body = (await req.json()) as BriefRunInput & { stream?: boolean };
     if (!body.source || !(body.question || body.goal)) {
       return Response.json(
@@ -50,11 +89,19 @@ export async function POST(req: Request) {
 
     if (!wantsStream(req, body)) {
       const result = await runBriefPipeline(input, { signal });
-      const cancelled = result.error === CANCELLED_MESSAGE;
+      const cancelled = isCancelledError(result.error);
       return Response.json(result, {
         status: result.ok ? 200 : cancelled ? 499 : 502,
+        headers: {
+          "X-RateLimit-Limit": String(RATE_LIMIT),
+          "X-RateLimit-Remaining": String(limited.remaining),
+        },
       });
     }
+
+    // Hold the concurrency slot until the stream finishes.
+    const heldRelease = release;
+    release = null;
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -86,6 +133,7 @@ export async function POST(req: Request) {
             ms: 0,
           });
         } finally {
+          heldRelease();
           try {
             controller.close();
           } catch {
@@ -94,9 +142,7 @@ export async function POST(req: Request) {
         }
       },
       cancel() {
-        if (!signal.aborted) {
-          // ReadableStream cancel when client drops; req.signal usually fires too.
-        }
+        // req.signal abort usually covers cancel; slot released in finally.
       },
     });
 
@@ -105,6 +151,8 @@ export async function POST(req: Request) {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
+        "X-RateLimit-Limit": String(RATE_LIMIT),
+        "X-RateLimit-Remaining": String(limited.remaining),
       },
     });
   } catch (e) {
@@ -112,5 +160,7 @@ export async function POST(req: Request) {
       { ok: false, error: e instanceof Error ? e.message : "brief-run failed" },
       { status: 500 },
     );
+  } finally {
+    release?.();
   }
 }
