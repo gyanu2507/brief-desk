@@ -1,3 +1,10 @@
+import {
+  CANCELLED_MESSAGE,
+  TIMEOUT_MESSAGE,
+  isAbortError,
+  throwIfAborted,
+  withTimeout,
+} from "./abort";
 import { callMcpTool } from "./mcp-client";
 import { fetchGithubTrending, isMcpToolMissing } from "./github-trending";
 
@@ -97,11 +104,46 @@ function resolveModelId(): string {
   return MODEL_ALIASES[id] ?? id;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    if (!signal) return;
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("brief-run cancelled", "AbortError"));
+    };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
-async function draftWithGroq(question: string, evidence: string): Promise<string> {
+type McpCall = Awaited<ReturnType<typeof callMcpTool>>;
+
+async function mcp(
+  name: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<McpCall> {
+  throwIfAborted(signal);
+  const result = await callMcpTool(name, args, { signal });
+  if (result.cancelled) {
+    throw new DOMException("brief-run cancelled", "AbortError");
+  }
+  if (result.timedOut) {
+    throw new Error(result.error || TIMEOUT_MESSAGE);
+  }
+  return result;
+}
+
+async function draftWithGroq(
+  question: string,
+  evidence: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const key = process.env.OPENAI_API_KEY;
   const base = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
   const model = resolveModelId();
@@ -127,15 +169,22 @@ async function draftWithGroq(question: string, evidence: string): Promise<string
 
   let lastErr = "draft failed";
   for (let attempt = 0; attempt < 4; attempt++) {
-    const res = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(45_000),
-    });
+    throwIfAborted(signal);
+    const { signal: attemptSignal, clear } = withTimeout(45_000, signal);
+    let res: Response;
+    try {
+      res = await fetch(`${base}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: attemptSignal,
+      });
+    } finally {
+      clear();
+    }
     const body = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
       error?: { message?: string };
@@ -148,17 +197,21 @@ async function draftWithGroq(question: string, evidence: string): Promise<string
     lastErr = body.error?.message || `draft failed (${res.status})`;
     const retryable = res.status === 429 || /rate limit|try again/i.test(lastErr);
     if (!retryable || attempt === 3) break;
+    throwIfAborted(signal);
     const waitMatch = /try again in ([\d.]+)s/i.exec(lastErr);
     const waitMs = waitMatch
       ? Math.min(45_000, Math.ceil(Number(waitMatch[1]) * 1000) + 500)
       : 8_000 * (attempt + 1);
-    await sleep(waitMs);
+    await sleep(waitMs, signal);
   }
+  throwIfAborted(signal);
   throw new Error(lastErr);
 }
 
 export type BriefRunOptions = {
   onStep?: (step: string, stepsSoFar: string[]) => void;
+  /** Propagates cancel / client disconnect through MCP and model calls. */
+  signal?: AbortSignal;
 };
 
 function pushStep(
@@ -178,6 +231,7 @@ export async function runBriefPipeline(
   const t0 = Date.now();
   const steps: string[] = [];
   const onStep = opts?.onStep;
+  const signal = opts?.signal;
   const question = (input.goal || input.question).trim();
   if (question.length < 4) {
     return { ok: false, answer: "", steps, error: "question/goal required", ms: 0 };
@@ -185,12 +239,14 @@ export async function runBriefPipeline(
 
   let evidence = "";
   try {
+    throwIfAborted(signal);
+
     if (input.source === "auto") {
       pushStep(steps, "brief_auto", onStep);
-      const auto = await callMcpTool("brief_auto", { goal: question });
+      const auto = await mcp("brief_auto", { goal: question }, signal);
       if (!auto.ok) {
         pushStep(steps, "brief_plan", onStep);
-        const plan = await callMcpTool("brief_plan", { goal: question });
+        const plan = await mcp("brief_plan", { goal: question }, signal);
         if (!plan.ok) {
           return {
             ok: false,
@@ -212,13 +268,17 @@ export async function runBriefPipeline(
           invented = {};
         }
         pushStep(steps, "brief_orchestrate", onStep);
-        const orch = await callMcpTool("brief_orchestrate", {
-          question,
-          repo: invented.repo || undefined,
-          repo_b: invented.repo_b || undefined,
-          url: invented.url || undefined,
-          mode: invented.mode || undefined,
-        });
+        const orch = await mcp(
+          "brief_orchestrate",
+          {
+            question,
+            repo: invented.repo || undefined,
+            repo_b: invented.repo_b || undefined,
+            url: invented.url || undefined,
+            mode: invented.mode || undefined,
+          },
+          signal,
+        );
         if (!orch.ok) {
           return {
             ok: false,
@@ -234,7 +294,7 @@ export async function runBriefPipeline(
       }
     } else if (input.source === "corpus") {
       pushStep(steps, "brief_corpus", onStep);
-      const corpus = await callMcpTool("brief_corpus", { question });
+      const corpus = await mcp("brief_corpus", { question }, signal);
       if (!corpus.ok) {
         return {
           ok: false,
@@ -247,19 +307,25 @@ export async function runBriefPipeline(
       evidence = corpus.text;
     } else if (input.source === "trending") {
       pushStep(steps, "brief_github_trending", onStep);
-      const trend = await callMcpTool("brief_github_trending", {
-        language: input.language || undefined,
-        since: input.since || "weekly",
-        max_results: 10,
-      });
+      const trend = await mcp(
+        "brief_github_trending",
+        {
+          language: input.language || undefined,
+          since: input.since || "weekly",
+          max_results: 10,
+        },
+        signal,
+      );
       if (trend.ok) {
         evidence = trend.text;
       } else if (isMcpToolMissing(trend.error) || trend.error) {
         pushStep(steps, "github_trending_direct", onStep);
+        throwIfAborted(signal);
         const scraped = await fetchGithubTrending({
           language: input.language,
           since: input.since || "weekly",
           maxResults: 10,
+          signal,
         });
         if (!scraped.repos.length) {
           return {
@@ -294,7 +360,7 @@ export async function runBriefPipeline(
       }
       const tool = registry === "pypi" ? "brief_pypi_package" : "brief_npm_package";
       pushStep(steps, tool, onStep);
-      const pkg = await callMcpTool(tool, { name });
+      const pkg = await mcp(tool, { name }, signal);
       if (!pkg.ok) {
         return {
           ok: false,
@@ -328,11 +394,15 @@ export async function runBriefPipeline(
         };
       }
       pushStep(steps, "brief_repo_release_diff", onStep);
-      const diff = await callMcpTool("brief_repo_release_diff", {
-        repo: r,
-        tag_a: a,
-        tag_b: b,
-      });
+      const diff = await mcp(
+        "brief_repo_release_diff",
+        {
+          repo: r,
+          tag_a: a,
+          tag_b: b,
+        },
+        signal,
+      );
       if (!diff.ok) {
         return {
           ok: false,
@@ -345,13 +415,17 @@ export async function runBriefPipeline(
       evidence = diff.text;
     } else {
       pushStep(steps, "brief_orchestrate", onStep);
-      const orch = await callMcpTool("brief_orchestrate", {
-        question,
-        repo: input.repo || undefined,
-        repo_b: input.repoB || undefined,
-        url: input.url || undefined,
-        mode: input.source === "compare" ? "compare" : input.mode || undefined,
-      });
+      const orch = await mcp(
+        "brief_orchestrate",
+        {
+          question,
+          repo: input.repo || undefined,
+          repo_b: input.repoB || undefined,
+          url: input.url || undefined,
+          mode: input.source === "compare" ? "compare" : input.mode || undefined,
+        },
+        signal,
+      );
       if (!orch.ok) {
         return {
           ok: false,
@@ -364,15 +438,21 @@ export async function runBriefPipeline(
       evidence = orch.text;
     }
 
+    throwIfAborted(signal);
     pushStep(steps, "draft", onStep);
-    let draft = await draftWithGroq(question, evidence);
+    let draft = await draftWithGroq(question, evidence, signal);
 
+    throwIfAborted(signal);
     pushStep(steps, "brief_eval", onStep);
-    const ev = await callMcpTool("brief_eval", {
-      question,
-      draft,
-      evidence: truncate(evidence, 1200),
-    });
+    const ev = await mcp(
+      "brief_eval",
+      {
+        question,
+        draft,
+        evidence: truncate(evidence, 1200),
+      },
+      signal,
+    );
     let evalObj: unknown = ev.text;
     try {
       evalObj = JSON.parse(ev.text);
@@ -386,10 +466,12 @@ export async function runBriefPipeline(
       (evalObj as { pass?: boolean }).pass === true;
 
     if (!pass) {
+      throwIfAborted(signal);
       pushStep(steps, "revise", onStep);
       draft = await draftWithGroq(
         `${question}\n\nRevise this draft using the evidence. Keep citations.\n\nDraft:\n${draft}`,
         evidence,
+        signal,
       );
     }
 
@@ -403,6 +485,15 @@ export async function runBriefPipeline(
       ...(repos.length ? { repos } : {}),
     };
   } catch (e) {
+    if (isAbortError(e)) {
+      return {
+        ok: false,
+        answer: "",
+        steps,
+        error: CANCELLED_MESSAGE,
+        ms: Date.now() - t0,
+      };
+    }
     return {
       ok: false,
       answer: "",

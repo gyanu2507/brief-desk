@@ -1,3 +1,5 @@
+import { isAbortError, withTimeout } from "./abort";
+
 /** Direct scrape of github.com/trending when MCP lacks brief_github_trending. */
 
 export type TrendingRepo = {
@@ -84,6 +86,7 @@ export async function fetchGithubTrending(opts: {
   language?: string | null;
   since?: string | null;
   maxResults?: number;
+  signal?: AbortSignal;
 }): Promise<TrendingResult> {
   const period = normalizeSince(opts.since);
   const lang = normalizeLanguage(opts.language);
@@ -96,16 +99,50 @@ export async function fetchGithubTrending(opts: {
     return { ...hit.payload, cached: true };
   }
 
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; brief-desk)",
-      Accept: "text/html",
-    },
-    signal: AbortSignal.timeout(15_000),
-    cache: "no-store",
-  });
+  const { signal, clear } = withTimeout(15_000, opts.signal);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; brief-desk)",
+        Accept: "text/html",
+      },
+      signal,
+      cache: "no-store",
+    });
 
-  if (!res.ok) {
+    if (!res.ok) {
+      return {
+        source: "github_trending",
+        url,
+        language: opts.language || null,
+        since: period,
+        repos: [],
+        cached: false,
+        error: `trending fetch failed (${res.status})`,
+        guidance: "Retry later, or redeploy MCP to 0.10.0+ for brief_github_trending.",
+      };
+    }
+
+    const html = await res.text();
+    const repos = parseTrendingHtml(html, limit);
+    const payload: TrendingResult = {
+      source: "github_trending",
+      url,
+      language: opts.language || null,
+      since: period,
+      repos,
+      cached: false,
+      ...(repos.length
+        ? {}
+        : {
+            error: "no repos parsed",
+            guidance: "GitHub HTML may have changed, or try a different language/window.",
+          }),
+    };
+    cache.set(cacheKey, { expires: Date.now() + CACHE_TTL_MS, payload });
+    return payload;
+  } catch (e) {
+    if (isAbortError(e)) throw e;
     return {
       source: "github_trending",
       url,
@@ -113,29 +150,12 @@ export async function fetchGithubTrending(opts: {
       since: period,
       repos: [],
       cached: false,
-      error: `trending fetch failed (${res.status})`,
+      error: e instanceof Error ? e.message : "trending fetch failed",
       guidance: "Retry later, or redeploy MCP to 0.10.0+ for brief_github_trending.",
     };
+  } finally {
+    clear();
   }
-
-  const html = await res.text();
-  const repos = parseTrendingHtml(html, limit);
-  const payload: TrendingResult = {
-    source: "github_trending",
-    url,
-    language: opts.language || null,
-    since: period,
-    repos,
-    cached: false,
-    ...(repos.length
-      ? {}
-      : {
-          error: "no repos parsed",
-          guidance: "GitHub HTML may have changed, or try a different language/window.",
-        }),
-  };
-  cache.set(cacheKey, { expires: Date.now() + CACHE_TTL_MS, payload });
-  return payload;
 }
 
 export function isMcpToolMissing(error?: string): boolean {
