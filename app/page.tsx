@@ -280,6 +280,7 @@ function DeskPage() {
   const [lastEvalView, setLastEvalView] = useState<EvalView | null>(null);
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [lastObservability, setLastObservability] = useState<RunObservability | null>(null);
+  const [runElapsedSec, setRunElapsedSec] = useState(0);
   const [linkCopied, setLinkCopied] = useState(false);
   const [cloudUserId, setCloudUserId] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -893,6 +894,7 @@ function DeskPage() {
     }
     setBusyNote(null);
     setPipelineBusy(false);
+    setRunElapsedSec(0);
     setRunError(null);
     setLastGrounding(null);
     setLastEvalView(null);
@@ -908,6 +910,31 @@ function DeskPage() {
       new CustomEvent("brief-desk-error", { detail: CANCELLED_MESSAGE }),
     );
   }, [source, hasBriefAuto, packageRegistry, stopGeneration]);
+
+  useEffect(() => {
+    if (!pipelineBusy && !isLoading) {
+      setRunElapsedSec(0);
+      return;
+    }
+    const started = Date.now();
+    setRunElapsedSec(0);
+    const id = window.setInterval(() => {
+      setRunElapsedSec(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [pipelineBusy, isLoading]);
+
+  useEffect(() => {
+    if (!pipelineBusy && !isLoading) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        cancelRun();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pipelineBusy, isLoading, cancelRun]);
 
   const runBrief = useCallback(
     async (question: string, override?: RunOverride) => {
@@ -1328,9 +1355,12 @@ function DeskPage() {
 
   return (
     <>
+      <a className="skip-link" href="#brief-main">
+        Skip to brief chat
+      </a>
       <ToolCards />
       <main className="desk-shell">
-        <aside className="desk-controls">
+        <aside className="desk-controls" aria-label="Brief controls">
           <div className="brand-row">
             <div className="brand-left">
               <BrandMark size={32} />
@@ -1615,6 +1645,7 @@ function DeskPage() {
             type="button"
             className="btn-primary"
             disabled={!canRun}
+            aria-busy={pipelineBusy || isLoading}
             onClick={() =>
               void runBrief(startQuestion, source === "auto" ? { goal } : undefined)
             }
@@ -1633,9 +1664,20 @@ function DeskPage() {
           </button>
 
           {canCancel ? (
-            <button type="button" className="btn-danger" onClick={cancelRun}>
+            <button
+              type="button"
+              className="btn-danger"
+              onClick={cancelRun}
+              aria-keyshortcuts="Escape"
+            >
               Cancel run
             </button>
+          ) : null}
+
+          {canCancel && runElapsedSec >= 20 ? (
+            <p className="long-run-note" role="status">
+              Still working ({runElapsedSec}s). Press Escape or Cancel run to stop.
+            </p>
           ) : null}
 
           {runError && !pipelineBusy && !isLoading ? (
@@ -1754,7 +1796,7 @@ function DeskPage() {
           ) : null}
         </aside>
 
-        <section className="desk-main">
+        <section className="desk-main" id="brief-main" tabIndex={-1} aria-label="Brief chat">
           <div style={{ flex: 1, minHeight: 0 }} className="desk-chat">
             <CopilotChat
               labels={{
