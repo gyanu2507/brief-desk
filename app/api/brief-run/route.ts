@@ -1,3 +1,4 @@
+import { CANCELLED_MESSAGE } from "../../../lib/abort";
 import { runBriefPipeline, type BriefRunInput } from "../../../lib/brief-run";
 
 export const runtime = "nodejs";
@@ -11,6 +12,24 @@ function wantsStream(req: Request, body: BriefRunInput & { stream?: boolean }): 
 
 function sse(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
+}
+
+/** Abort when the client disconnects or cancels the fetch. */
+function clientSignal(req: Request): AbortSignal {
+  const ac = new AbortController();
+  const upstream = req.signal;
+  if (upstream.aborted) {
+    ac.abort(upstream.reason);
+    return ac.signal;
+  }
+  upstream.addEventListener(
+    "abort",
+    () => {
+      if (!ac.signal.aborted) ac.abort(upstream.reason);
+    },
+    { once: true },
+  );
+  return ac.signal;
 }
 
 /** Deterministic Run agent path: gather → draft → eval (JSON or SSE). */
@@ -27,22 +46,32 @@ export async function POST(req: Request) {
       ...body,
       question: (body.goal || body.question || "").trim(),
     };
+    const signal = clientSignal(req);
 
     if (!wantsStream(req, body)) {
-      const result = await runBriefPipeline(input);
-      return Response.json(result, { status: result.ok ? 200 : 502 });
+      const result = await runBriefPipeline(input, { signal });
+      const cancelled = result.error === CANCELLED_MESSAGE;
+      return Response.json(result, {
+        status: result.ok ? 200 : cancelled ? 499 : 502,
+      });
     }
 
     const stream = new ReadableStream({
       async start(controller) {
         const enc = new TextEncoder();
         const send = (payload: unknown) => {
-          controller.enqueue(enc.encode(sse(payload)));
+          try {
+            controller.enqueue(enc.encode(sse(payload)));
+          } catch {
+            // client gone
+          }
         };
         try {
           send({ type: "start" });
           const result = await runBriefPipeline(input, {
+            signal,
             onStep: (step, stepsSoFar) => {
+              if (signal.aborted) return;
               send({ type: "step", step, steps: stepsSoFar });
             },
           });
@@ -57,7 +86,16 @@ export async function POST(req: Request) {
             ms: 0,
           });
         } finally {
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // already closed
+          }
+        }
+      },
+      cancel() {
+        if (!signal.aborted) {
+          // ReadableStream cancel when client drops; req.signal usually fires too.
         }
       },
     });
