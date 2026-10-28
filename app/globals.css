@@ -699,6 +699,26 @@ select.field option,
   background: color-mix(in srgb, var(--bad) 12%, transparent);
 }
 
+.run-error-bar {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bad) 8%, var(--query-bg));
+}
+
+.run-error-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--bad);
+  word-break: break-word;
+}
+
+.run-error-bar .btn-secondary {
+  margin-top: 8px;
+}
+
 .plan-board {
   margin: 12px 0 4px;
   padding: 12px;

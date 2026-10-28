@@ -29,6 +29,7 @@ import {
   saveBriefHistory,
   type BriefHistoryEntry,
 } from "../lib/brief-history";
+import { CANCELLED_MESSAGE } from "../lib/abort";
 import { evalOverallScore } from "../lib/brief-run";
 import { runBriefViaApi } from "../lib/brief-run-client";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
@@ -58,6 +59,21 @@ import {
 import { mergeByIdAt } from "../lib/sync-merge";
 import { renderTemplate } from "../lib/template";
 import type { BriefMode, PackageRegistry, PromptUi, SourceKind } from "../lib/types";
+
+type RunOverride = Partial<{
+  source: SourceKind;
+  mode: BriefMode;
+  repo: string | null;
+  repoB: string | null;
+  url: string | null;
+  goal: string | null;
+  language: string | null;
+  since: string | null;
+  packageName: string | null;
+  packageRegistry: PackageRegistry;
+  tagA: string | null;
+  tagB: string | null;
+}>;
 
 function emitPlan(detail: { steps?: PlanStep[]; note?: string | null; active?: boolean }) {
   window.dispatchEvent(new CustomEvent("brief-desk-plan", { detail }));
@@ -264,7 +280,9 @@ function DeskPage() {
   const [mcpTools, setMcpTools] = useState<string[]>([]);
   const [busyNote, setBusyNote] = useState<string | null>(null);
   const [pipelineBusy, setPipelineBusy] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const lastRunRef = useRef<{ question: string; override?: RunOverride } | null>(null);
   const [promptUi, setPromptUi] = useState<PromptUi>(FALLBACK_UI);
   const [promptRoutes, setPromptRoutes] = useState<string[]>([
     "auto",
@@ -857,6 +875,7 @@ function DeskPage() {
     }
     setBusyNote(null);
     setPipelineBusy(false);
+    setRunError(null);
     emitPlan({
       active: false,
       note: "Cancelled",
@@ -866,37 +885,22 @@ function DeskPage() {
       })),
     });
     window.dispatchEvent(
-      new CustomEvent("brief-desk-error", { detail: "Run cancelled." }),
+      new CustomEvent("brief-desk-error", { detail: CANCELLED_MESSAGE }),
     );
   }, [source, hasBriefAuto, packageRegistry, stopGeneration]);
 
   const runBrief = useCallback(
-    async (
-      question: string,
-      override?: Partial<{
-        source: SourceKind;
-        mode: BriefMode;
-        repo: string | null;
-        repoB: string | null;
-        url: string | null;
-        goal: string | null;
-        language: string | null;
-        since: string | null;
-        packageName: string | null;
-        packageRegistry: PackageRegistry;
-        tagA: string | null;
-        tagB: string | null;
-      }>,
-    ) => {
+    async (question: string, override?: RunOverride) => {
       if (isLoading || pipelineBusy) return;
       if (mcpOk !== true || !hasOrchestrate) {
-        window.dispatchEvent(
-          new CustomEvent("brief-desk-error", {
-            detail: "MCP is offline or missing brief_orchestrate. Redeploy Render, then retry.",
-          }),
-        );
+        const detail =
+          "MCP is offline or missing brief_orchestrate. Redeploy Render, then retry.";
+        setRunError(detail);
+        window.dispatchEvent(new CustomEvent("brief-desk-error", { detail }));
         return;
       }
+      lastRunRef.current = { question, override };
+      setRunError(null);
       const s = override?.source ?? source;
       const m = override?.mode ?? mode;
       const r = override?.repo !== undefined ? override.repo : repo;
@@ -1006,9 +1010,13 @@ function DeskPage() {
             },
           },
         );
+        if (body.error === CANCELLED_MESSAGE || controller.signal.aborted) {
+          throw new DOMException(CANCELLED_MESSAGE, "AbortError");
+        }
         if (!body.ok || !body.answer) {
           throw new Error(body.error || "brief-run failed");
         }
+        setRunError(null);
         if (Array.isArray(body.repos) && body.repos.length) {
           setTrendingSeed(body.repos);
         }
@@ -1079,7 +1087,12 @@ function DeskPage() {
           }),
         );
       } catch (e) {
-        if (controller.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) {
+        const aborted =
+          controller.signal.aborted ||
+          (e instanceof DOMException && e.name === "AbortError") ||
+          (e instanceof Error && e.message === CANCELLED_MESSAGE);
+        if (aborted) {
+          setRunError(null);
           await appendMessage(
             new TextMessage({
               role: Role.Assistant,
@@ -1090,6 +1103,7 @@ function DeskPage() {
           return;
         }
         const message = e instanceof Error ? e.message : "brief-run failed";
+        setRunError(message);
         emitPlan({
           active: false,
           note: message,
@@ -1100,7 +1114,7 @@ function DeskPage() {
         await appendMessage(
           new TextMessage({
             role: Role.Assistant,
-            content: `**Could not finish the brief.**\n\n${message}`,
+            content: `**Could not finish the brief.**\n\n${message}\n\nUse **Retry** to run the same brief again.`,
           }),
           { followUp: false },
         ).catch(() => undefined);
@@ -1248,17 +1262,6 @@ function DeskPage() {
   const demos = promptUi.demos?.length ? promptUi.demos : FALLBACK_UI.demos;
   const defaultQ = { ...FALLBACK_UI.defaultQuestions, ...promptUi.defaultQuestions };
 
-  const mcpLabel =
-    mcpOk === null
-      ? "MCP checking…"
-      : !mcpOk
-        ? "MCP offline · Manual Deploy on Render"
-        : !hasOrchestrate
-          ? `MCP v${mcpVersion || "?"} · missing tools`
-          : hasBriefAuto
-            ? `MCP online · v${mcpVersion} · brief_auto`
-            : `MCP online · v${mcpVersion} · compat mode`;
-
   const startQuestion =
     source === "auto"
       ? goal
@@ -1313,20 +1316,6 @@ function DeskPage() {
             brief with citations.
           </p>
 
-          <div
-            className="status-row"
-            style={{
-              color: mcpOk === null ? "var(--muted)" : mcpReady ? "var(--ok)" : "var(--bad)",
-            }}
-          >
-            <span
-              className="status-dot"
-              style={{
-                background: mcpOk === null ? "var(--muted)" : mcpReady ? "var(--ok)" : "var(--bad)",
-              }}
-            />
-            {mcpLabel}
-          </div>
           {mcpVersionWarn ? (
             <p className="mcp-warn" role="status">
               {mcpVersionWarn}
@@ -1602,6 +1591,26 @@ function DeskPage() {
             <button type="button" className="btn-danger" onClick={cancelRun}>
               Cancel run
             </button>
+          ) : null}
+
+          {runError && !pipelineBusy && !isLoading ? (
+            <div className="run-error-bar" role="alert">
+              <p className="run-error-text">{runError}</p>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  const last = lastRunRef.current;
+                  if (!last) {
+                    void runBrief(startQuestion, source === "auto" ? { goal } : undefined);
+                    return;
+                  }
+                  void runBrief(last.question, last.override);
+                }}
+              >
+                Retry
+              </button>
+            </div>
           ) : null}
 
           <PlanBoard />
