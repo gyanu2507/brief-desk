@@ -12,6 +12,7 @@ import { BriefExportBar } from "./BriefExportBar";
 import { BriefEvalPanel } from "./BriefEval";
 import { BriefGroundingPanel } from "./BriefGrounding";
 import { BriefHistory } from "./BriefHistory";
+import { BriefRunStatus } from "./BriefRunStatus";
 import { PlanBoard } from "./PlanBoard";
 import { ReleaseDiffPanel } from "./ReleaseDiffPanel";
 import { RepoCombobox } from "./RepoCombobox";
@@ -46,6 +47,7 @@ import {
 } from "../lib/eval-display";
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
+import type { RunObservability } from "../lib/run-observability";
 import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
 import { loadLocalSaved, SAVED_MAX, type SavedBrief } from "../lib/saved-shortcuts";
 import {
@@ -276,6 +278,8 @@ function DeskPage() {
   const [lastMarkdown, setLastMarkdown] = useState<string | null>(null);
   const [lastGrounding, setLastGrounding] = useState<BriefGrounding | null>(null);
   const [lastEvalView, setLastEvalView] = useState<EvalView | null>(null);
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
+  const [lastObservability, setLastObservability] = useState<RunObservability | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [cloudUserId, setCloudUserId] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -1026,13 +1030,19 @@ function DeskPage() {
             },
           },
         );
-        if (body.error === CANCELLED_MESSAGE || controller.signal.aborted) {
+        if (
+          controller.signal.aborted ||
+          body.errorCategory === "cancelled" ||
+          body.error?.startsWith(CANCELLED_MESSAGE)
+        ) {
           throw new DOMException(CANCELLED_MESSAGE, "AbortError");
         }
         if (!body.ok || !body.answer) {
           throw new Error(body.error || "brief-run failed");
         }
         setRunError(null);
+        if (body.runId) setLastRunId(body.runId);
+        if (body.observability) setLastObservability(body.observability);
         if (Array.isArray(body.repos) && body.repos.length) {
           setTrendingSeed(body.repos);
         }
@@ -1114,7 +1124,7 @@ function DeskPage() {
         const aborted =
           controller.signal.aborted ||
           (e instanceof DOMException && e.name === "AbortError") ||
-          (e instanceof Error && e.message === CANCELLED_MESSAGE);
+          (e instanceof Error && e.message.startsWith(CANCELLED_MESSAGE));
         if (aborted) {
           setRunError(null);
           setLastGrounding(null);
@@ -1132,6 +1142,11 @@ function DeskPage() {
         setRunError(message);
         setLastGrounding(null);
         setLastEvalView(null);
+        setLastObservability((prev) =>
+          prev
+            ? { ...prev, errorCategory: prev.errorCategory || "unknown" }
+            : prev,
+        );
         emitPlan({
           active: false,
           note: message,
@@ -1645,6 +1660,12 @@ function DeskPage() {
 
           <PlanBoard />
 
+          <BriefRunStatus
+            runId={lastRunId}
+            observability={lastObservability}
+            busyNote={busyNote}
+            pipelineBusy={pipelineBusy}
+          />
           <BriefGroundingPanel grounding={lastGrounding} />
           <BriefEvalPanel evalView={lastEvalView} />
 

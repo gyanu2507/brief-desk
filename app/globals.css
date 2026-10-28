@@ -793,6 +793,62 @@ select.field option,
   border: 1px solid var(--line);
 }
 
+.run-status-panel {
+  margin: 12px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--query-bg);
+}
+
+.run-status-summary {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.run-status-error {
+  color: var(--bad);
+}
+
+.run-status-tools {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.run-status-tools li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.run-status-tools li.ok {
+  border-color: color-mix(in srgb, #16a34a 30%, var(--line));
+}
+
+.run-status-tools li.bad {
+  border-color: color-mix(in srgb, var(--bad) 40%, var(--line));
+}
+
+.run-status-tools strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.run-status-model {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .eval-panel {
   margin: 12px 0 4px;
   padding: 12px;
