@@ -65,8 +65,9 @@ def extract_citations(draft: str) -> list[dict[str, str]]:
         repo = m.group(1)
         if repo.lower().startswith(("http://", "https://")):
             continue
-        # Skip version-like or path-like false positives.
-        if "." in repo.split("/")[0] and repo.split("/")[0].count(".") >= 2:
+        owner, _, name = repo.partition("/")
+        # Skip domain-like owners (example.com/...) and empty names.
+        if not name or "." in owner or owner.lower() in {"http", "https"}:
             continue
         add("repo", repo, url=f"https://github.com/{repo}")
 
@@ -133,7 +134,8 @@ def extract_evidence_links(evidence: str, limit: int = 12) -> list[dict[str, str
 
     for m in _REPO_RE.finditer(evidence):
         repo = m.group(1)
-        if "/" not in repo:
+        owner, _, name = repo.partition("/")
+        if not name or "." in owner:
             continue
         url = f"https://github.com/{repo}"
         key = url.lower()
@@ -158,13 +160,16 @@ def eval_draft(question: str, draft: str, evidence: str) -> dict[str, Any]:
     citations = [validate_citation(c, evidence) for c in citations_raw]
     verified_n = sum(1 for c in citations if c.get("verified"))
     has_cite = len(citations) > 0
-    invent_risk = bool(
-        _ABSOLUTE_RE.search(d) and verified_n == 0 and len(evidence) < 200
-    )
+    unverified = [c for c in citations if not c.get("verified")]
+    absolute = bool(_ABSOLUTE_RE.search(d))
+    invent_risk = bool(absolute and verified_n == 0 and len(evidence) < 200)
+    absolute_with_gaps = bool(absolute and unverified)
     grounded = len(evidence) > 40 and (verified_n > 0 or (has_cite and coverage >= 0.35))
     completeness = min(1.0, len(d) / 280) * 0.5 + coverage * 0.5
-    if verified_n > 0:
+    if verified_n > 0 and not unverified:
         citation = min(1.0, 0.55 + 0.15 * verified_n)
+    elif verified_n > 0:
+        citation = 0.5
     elif has_cite:
         citation = 0.35
     elif "readme" in e or "path" in e:
@@ -172,14 +177,21 @@ def eval_draft(question: str, draft: str, evidence: str) -> dict[str, Any]:
     else:
         citation = 0.15
     groundedness = 0.25 if invent_risk else (0.85 if grounded else 0.45)
+    if absolute_with_gaps:
+        groundedness = min(groundedness, 0.4)
     overall = round((groundedness * 0.45 + completeness * 0.35 + citation * 0.2) * 100, 1)
-    passed = overall >= 55 and not invent_risk and (verified_n > 0 or not has_cite or coverage >= 0.4)
+    passed = (
+        overall >= 55
+        and not invent_risk
+        and not absolute_with_gaps
+        and (verified_n > 0 or not has_cite or coverage >= 0.4)
+        and len(unverified) == 0
+    )
 
     revisions: list[str] = []
     warnings: list[str] = []
     if not has_cite:
         revisions.append("Add citations: file paths, #issue/#PR, or source URLs from the evidence.")
-    unverified = [c for c in citations if not c.get("verified")]
     if unverified:
         sample = ", ".join(c["text"] for c in unverified[:4])
         warnings.append(f"Unverified citations (not found in evidence): {sample}")
@@ -188,13 +200,12 @@ def eval_draft(question: str, draft: str, evidence: str) -> dict[str, Any]:
         revisions.append("Address more of the user question terms explicitly.")
     if len(d) < 120:
         revisions.append("Expand the answer with concrete evidence details.")
-    if invent_risk:
-        warnings.append("Absolute claims without verified citations.")
+    if invent_risk or absolute_with_gaps:
+        warnings.append("Absolute claims without fully verified citations.")
         revisions.append("Remove absolute claims that are not backed by the pack.")
     for m in _ABSOLUTE_RE.finditer(d):
-        # Soft warning even when some cites exist.
         span = d[max(0, m.start() - 40) : m.end() + 40].strip()
-        if verified_n == 0:
+        if verified_n == 0 or unverified:
             warnings.append(f"Strong wording near: “{span[:90]}”")
             break
     if passed and not revisions:

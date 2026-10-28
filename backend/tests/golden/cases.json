@@ -1,0 +1,46 @@
+[
+  {
+    "id": "verified-github-path",
+    "question": "Summarize vercel/next.js server entry for an eng manager.",
+    "draft": "Plan: github · overview · vercel/next.js\n\nThe overview in src/server.ts matches vercel/next.js docs at https://github.com/vercel/next.js. Ship blockers look low.",
+    "evidence": "path: src/server.ts\nrepo: vercel/next.js\nhttps://github.com/vercel/next.js\nREADME covers App Router server entry.",
+    "expect": {
+      "pass": true,
+      "min_overall": 55,
+      "min_verified": 1,
+      "max_warnings": 2
+    }
+  },
+  {
+    "id": "unverified-url-warns",
+    "question": "Brief facebook/react risks",
+    "draft": "Plan: github · risks · facebook/react\n\nfacebook/react is always safe. See https://example.com/not-real for proof.",
+    "evidence": "{\"repo\":\"facebook/react\",\"url\":\"https://github.com/facebook/react\",\"readme\":\"Concurrent features\"}",
+    "expect": {
+      "pass": false,
+      "min_unverified": 1,
+      "max_overall": 80
+    }
+  },
+  {
+    "id": "thin-draft-needs-revision",
+    "question": "What are the main risks in facebook/react for production adoption?",
+    "draft": "Looks fine.",
+    "evidence": "{\"repo\":\"facebook/react\",\"issues\":[{\"number\":1,\"title\":\"bug\"}]}",
+    "expect": {
+      "pass": false,
+      "min_revisions": 1
+    }
+  },
+  {
+    "id": "corpus-style-cite",
+    "question": "What does the bundled corpus say about MCP tools?",
+    "draft": "Plan: corpus · overview · mcp/corpus\n\nThe corpus README.md lists brief_orchestrate and brief_eval as core tools.",
+    "evidence": "file: mcp/corpus/README.md\nbrief_orchestrate\nbrief_eval\nMCP tools inventory",
+    "expect": {
+      "pass": true,
+      "min_overall": 50,
+      "min_verified": 1
+    }
+  }
+]
