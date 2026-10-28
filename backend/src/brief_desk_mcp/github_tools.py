@@ -5,11 +5,18 @@ import os
 import re
 import time
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 import httpx
 
+from brief_desk_mcp.security import (
+    resolve_redirect_url,
+    scrub_untrusted_text,
+    validate_public_http_url,
+)
+
 FETCH_TIMEOUT_MS = float(os.environ.get("BRIEF_FETCH_TIMEOUT_MS", "10000"))
+MAX_FETCH_REDIRECTS = 5
 META_TTL_MS = 60_000
 README_TTL_MS = 60_000
 
@@ -337,35 +344,41 @@ async def fetch_repo_overview(repo: str) -> str:
 
 
 async def fetch_public_url(url: str) -> dict[str, Any]:
-    try:
-        parsed = urlparse(url)
-    except Exception as e:
-        raise RuntimeError("invalid URL") from e
-    if parsed.scheme not in ("http", "https"):
-        raise RuntimeError("only http/https URLs are allowed")
-    host = (parsed.hostname or "").lower()
-    if host in {"localhost", "127.0.0.1", "0.0.0.0"} or host.endswith(".local"):
-        raise RuntimeError("local URLs are blocked")
+    current = validate_public_http_url(url)
     timeout = FETCH_TIMEOUT_MS / 1000.0
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        res = await client.get(
-            parsed.geturl(),
-            headers={
-                "User-Agent": "brief-desk-mcp",
-                "Accept": "text/plain, text/markdown, text/html, */*",
-            },
-        )
+    res: httpx.Response | None = None
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        for _ in range(MAX_FETCH_REDIRECTS + 1):
+            # Re-validate every hop so redirects cannot jump to private hosts.
+            current = validate_public_http_url(current)
+            res = await client.get(
+                current,
+                headers={
+                    "User-Agent": "brief-desk-mcp",
+                    "Accept": "text/plain, text/markdown, text/html, */*",
+                },
+            )
+            if res.is_redirect:
+                current = resolve_redirect_url(current, res.headers.get("location"))
+                continue
+            break
+        else:
+            raise RuntimeError("too many redirects")
+    assert res is not None
     if res.status_code >= 400:
         raise RuntimeError(f"fetch failed ({res.status_code})")
     ctype = res.headers.get("content-type") or ""
     raw = res.text
+    html_stripped = False
     if "html" in ctype or re.search(r"<html[\s>]", raw, re.I):
         raw = re.sub(r"<script[\s\S]*?</script>", " ", raw, flags=re.I)
         raw = re.sub(r"<style[\s\S]*?</style>", " ", raw, flags=re.I)
         raw = re.sub(r"<[^>]+>", " ", raw)
         raw = re.sub(r"\s+", " ", raw).strip()
+        html_stripped = True
+    safe = scrub_untrusted_text(truncate(raw, 6000), source="url")
     return {
-        "url": parsed.geturl(),
-        "text": truncate(raw, 6000),
-        "note": "html_stripped" if "html" in ctype else None,
+        "url": current,
+        "text": safe,
+        "note": "html_stripped" if html_stripped else "scrubbed",
     }
