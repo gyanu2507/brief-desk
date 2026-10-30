@@ -1,5 +1,7 @@
 # brief-desk
 
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/gyanu2507/badge.svg)](https://hub.xerj.org/contributors/gyanu2507)
+
 One-repo engineering briefing desk: Next.js + CopilotKit (AG-UI) + **Python MCP**.
 
 Pick a source (auto, GitHub, docs URL, compare, corpus), run the agent, get a cited brief. Free-form chat can call the same MCP tools. Tool cards, a live plan board, and cancel are built into the UI.
