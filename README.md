@@ -68,8 +68,6 @@ docker compose up --build
 
 Same ports: UI `:3000`, MCP `:3108`.
 
-Legacy TypeScript MCP (optional): `npm run dev:mcp:ts`
-
 ### Sources
 
 | Source | What you set | Behavior |

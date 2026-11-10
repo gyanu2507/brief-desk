@@ -1,4 +1,4 @@
-"""Streamable HTTP MCP server (Python). Same tools as the former TS mcp/src/server.ts."""
+"""Streamable HTTP MCP server for brief-desk."""
 
 from __future__ import annotations
 

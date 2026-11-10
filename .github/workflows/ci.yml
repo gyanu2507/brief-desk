@@ -37,3 +37,11 @@ jobs:
         env:
           # MCP health/integration spawns local Python; no external keys required.
           COPILOTKIT_TELEMETRY_DISABLED: "true"
+
+      # Vercel runs this on every push to main. Running it here catches a
+      # broken production build before it ships.
+      - name: Build
+        run: npm run build
+        env:
+          COPILOTKIT_TELEMETRY_DISABLED: "true"
+          NEXT_TELEMETRY_DISABLED: "1"
