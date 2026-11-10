@@ -39,6 +39,8 @@ test("POST /api/brief-run returns cancelled when request signal is aborted", asy
   );
   const body = (await res.json()) as { ok?: boolean; error?: string };
   assert.equal(body.ok, false);
-  assert.equal(body.error, CANCELLED_MESSAGE);
+  // The message carries the run ID so a user can quote it in a bug report.
+  assert.match(body.error ?? "", /^Run cancelled\. \(run br_[a-z0-9_]+\)$/);
+  assert.ok(body.error?.startsWith(CANCELLED_MESSAGE));
   assert.equal(res.status, 499);
 });

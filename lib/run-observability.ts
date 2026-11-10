@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { CANCELLED_MESSAGE, TIMEOUT_MESSAGE } from "./abort";
 
 export type ErrorCategory =
@@ -35,7 +34,10 @@ export type RunObservability = {
 
 export function newRunId(): string {
   const stamp = Date.now().toString(36);
-  const rand = randomBytes(4).toString("hex");
+  // Web Crypto works in the browser and in Node, so client components can
+  // import this module without pulling node:crypto into the bundle.
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(4));
+  const rand = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   return `br_${stamp}_${rand}`;
 }
 
