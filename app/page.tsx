@@ -14,11 +14,11 @@ import { BriefGroundingPanel } from "./BriefGrounding";
 import { BriefHistory } from "./BriefHistory";
 import { BriefRunStatus } from "./BriefRunStatus";
 import { PlanBoard } from "./PlanBoard";
-import { ReleaseDiffPanel } from "./ReleaseDiffPanel";
-import { RepoCombobox } from "./RepoCombobox";
+import { ShortcutLists } from "./ShortcutLists";
+import { SourceFields } from "./SourceFields";
 import { ThemeToggle } from "./theme";
 import { ToolCards } from "./ToolCards";
-import { TrendingPicker, type TrendingRow } from "./TrendingPicker";
+import type { TrendingRow } from "./TrendingPicker";
 import {
   LoggingMessages,
   TranscriptProvider,
@@ -48,14 +48,11 @@ import {
 import { DEFAULT_AUTO_GOAL, FALLBACK_UI } from "../lib/fallback-ui";
 import { formatBriefMarkdown } from "../lib/format-brief";
 import type { RunObservability } from "../lib/run-observability";
-import { expectedSteps, stepsFromNames, type PlanStep } from "../lib/plan-steps";
+import { expectedSteps, stepsFromNames } from "../lib/plan-steps";
 import { loadLocalSaved, SAVED_MAX, type SavedBrief } from "../lib/saved-shortcuts";
 import {
   isKnownLanguage,
   normalizePackageName,
-  PACKAGE_REGISTRIES,
-  TRENDING_LANGUAGES,
-  TRENDING_SINCE,
 } from "../lib/select-options";
 import {
   buildSessionSearch,
@@ -71,184 +68,23 @@ import {
   pushRemoteSaved,
 } from "../lib/sync-api";
 import { mcpStatusMessage } from "../lib/mcp-status";
+import { useMcpHealth } from "./use-mcp-health";
 import { mergeByIdAt } from "../lib/sync-merge";
-import { renderTemplate } from "../lib/template";
 import type { BriefMode, PackageRegistry, PromptUi, SourceKind } from "../lib/types";
 
-type RunOverride = Partial<{
-  source: SourceKind;
-  mode: BriefMode;
-  repo: string | null;
-  repoB: string | null;
-  url: string | null;
-  goal: string | null;
-  language: string | null;
-  since: string | null;
-  packageName: string | null;
-  packageRegistry: PackageRegistry;
-  tagA: string | null;
-  tagB: string | null;
-}>;
-
-function emitPlan(detail: { steps?: PlanStep[]; note?: string | null; active?: boolean }) {
-  window.dispatchEvent(new CustomEvent("brief-desk-plan", { detail }));
-}
-
-const STORE_KEY = "brief-desk-v4";
-const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const RUN_WATCHDOG_MS = 90_000;
-
-function normalizeRepo(value: string): string | null {
-  const trimmed = value.trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/, "");
-  return REPO_RE.test(trimmed) ? trimmed : null;
-}
-
-function normalizeUrl(value: string): string | null {
-  const t = value.trim();
-  if (!/^https?:\/\//i.test(t)) return null;
-  try {
-    const u = new URL(t);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    return u.toString();
-  } catch {
-    return null;
-  }
-}
-
-function sessionNote(
-  ui: PromptUi,
-  args: {
-    source: SourceKind;
-    mode: BriefMode;
-    repo: string | null;
-    repoB: string | null;
-    url: string | null;
-    packageName: string | null;
-    packageRegistry: PackageRegistry;
-    tagA: string | null;
-    tagB: string | null;
-  },
-): string {
-  const notes = ui.sessionNotes;
-  if (args.source === "auto") return notes.auto;
-  if (args.source === "trending") return notes.trending || "Use brief_github_trending, then brief_eval.";
-  if (args.source === "package") {
-    return args.packageName
-      ? renderTemplate(notes.package_ready || "Call brief_{{registry}}_package name={{package}}.", {
-          registry: args.packageRegistry,
-          package: args.packageName,
-        })
-      : notes.package_missing || "Pick npm or PyPI and a package name.";
-  }
-  if (args.source === "releases") {
-    return args.repo && args.tagA && args.tagB
-      ? renderTemplate(
-          notes.releases_ready ||
-            "Call brief_repo_release_diff repo={{repo}} tag_a={{tag_a}} tag_b={{tag_b}}.",
-          { repo: args.repo, tag_a: args.tagA, tag_b: args.tagB },
-        )
-      : notes.releases_missing || "Pick a repo and two release tags.";
-  }
-  if (args.source === "github") {
-    return args.repo
-      ? renderTemplate(notes.github_ready, { repo: args.repo, mode: args.mode })
-      : notes.github_missing;
-  }
-  if (args.source === "url") {
-    if (!args.url) return notes.url_missing;
-    return renderTemplate(notes.url_ready, {
-      url: args.url,
-      mode: args.mode,
-      repo_suffix: args.repo ? ` and repo=${args.repo}` : "",
-    });
-  }
-  if (args.source === "compare") {
-    return args.repo && args.repoB
-      ? renderTemplate(notes.compare_ready, {
-          repo: args.repo,
-          repo_b: args.repoB,
-        })
-      : notes.compare_missing;
-  }
-  return notes.corpus;
-}
-
-function applySessionLink(
-  state: SessionLinkState,
-  setters: {
-    setSource: (v: SourceKind) => void;
-    setMode: (v: BriefMode) => void;
-    setRepoInput: (v: string) => void;
-    setRepoBInput: (v: string) => void;
-    setUrlInput: (v: string) => void;
-    setGoalInput: (v: string) => void;
-    setLanguageInput: (v: string) => void;
-    setSinceInput: (v: "daily" | "weekly" | "monthly") => void;
-    setPackageRegistry: (v: PackageRegistry) => void;
-    setPackageInput: (v: string) => void;
-    setTagA: (v: string) => void;
-    setTagB: (v: string) => void;
-  },
-) {
-  setters.setSource(state.source);
-  if (state.mode) setters.setMode(state.mode);
-  if (state.repo) setters.setRepoInput(state.repo);
-  if (state.repoB) setters.setRepoBInput(state.repoB);
-  if (state.url) setters.setUrlInput(state.url);
-  if (state.goal) setters.setGoalInput(state.goal);
-  if (state.language && isKnownLanguage(state.language)) {
-    setters.setLanguageInput(state.language);
-  }
-  if (state.since) setters.setSinceInput(state.since);
-  if (state.packageRegistry) setters.setPackageRegistry(state.packageRegistry);
-  if (state.packageName) setters.setPackageInput(state.packageName);
-  if (state.tagA) setters.setTagA(state.tagA);
-  if (state.tagB) setters.setTagB(state.tagB);
-}
-
-function messageRole(msg: unknown): string {
-  if (!msg || typeof msg !== "object") return "";
-  const role = (msg as { role?: string }).role;
-  return typeof role === "string" ? role.toLowerCase() : "";
-}
-
-function messageText(msg: unknown): string {
-  if (!msg || typeof msg !== "object") return "";
-  const content = (msg as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === "string") return part;
-        if (part && typeof part === "object" && "text" in part) {
-          return String((part as { text: unknown }).text ?? "");
-        }
-        return "";
-      })
-      .join("");
-  }
-  return "";
-}
-
-function chatMessagesFromHistory(entry: BriefHistoryEntry) {
-  const q = entry.question || entry.label || "Brief";
-  const stamp = entry.at || Date.now();
-  return {
-    question: q,
-    messages: [
-      {
-        id: `hist-u-${entry.id}-${stamp}`,
-        role: "user" as const,
-        content: q,
-      },
-      {
-        id: `hist-a-${entry.id}-${stamp}`,
-        role: "assistant" as const,
-        content: entry.markdown,
-      },
-    ],
-  };
-}
+import {
+  applySessionLink,
+  chatMessagesFromHistory,
+  emitPlan,
+  messageRole,
+  messageText,
+  normalizeRepo,
+  normalizeUrl,
+  RUN_WATCHDOG_MS,
+  sessionNote,
+  STORE_KEY,
+  type RunOverride,
+} from "../lib/desk-session";
 
 export default function Page() {
   return (
@@ -295,10 +131,7 @@ function DeskPage() {
   const skipNextChatHistory = useRef(false);
   const prevChatLoading = useRef(false);
   const lastChatHistoryKey = useRef("");
-  const [mcpOk, setMcpOk] = useState<boolean | null>(null);
-  const [mcpSlow, setMcpSlow] = useState(false);
-  const [mcpVersion, setMcpVersion] = useState<string>("");
-  const [mcpTools, setMcpTools] = useState<string[]>([]);
+  const { mcpOk, mcpSlow, mcpVersion, mcpTools } = useMcpHealth();
   const [busyNote, setBusyNote] = useState<string | null>(null);
   const [pipelineBusy, setPipelineBusy] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -703,48 +536,6 @@ function DeskPage() {
       // ignore
     }
   }, [sessionLinkState]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: number | undefined;
-    // The free-tier backend can take up to a minute to wake. If the first
-    // health check is still pending after a few seconds, say so.
-    const slowTimer = window.setTimeout(() => {
-      if (!cancelled) setMcpSlow(true);
-    }, 3_000);
-    const ping = async () => {
-      let ok = false;
-      try {
-        const res = await fetch("/api/mcp-health", { cache: "no-store" });
-        const body = (await res.json()) as {
-          ok?: boolean;
-          version?: string;
-          tools?: string[];
-        };
-        ok = Boolean(body.ok);
-        if (!cancelled) {
-          setMcpOk(ok);
-          setMcpVersion(typeof body.version === "string" ? body.version : "");
-          setMcpTools(Array.isArray(body.tools) ? body.tools : []);
-        }
-      } catch {
-        if (!cancelled) {
-          setMcpOk(false);
-          setMcpTools([]);
-        }
-      }
-      if (cancelled) return;
-      if (ok) setMcpSlow(false);
-      // Check often while the backend is down, rarely once it's up.
-      timer = window.setTimeout(ping, ok ? 20_000 : 5_000);
-    };
-    void ping();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(slowTimer);
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1348,6 +1139,35 @@ function DeskPage() {
       : FALLBACK_UI.suggest[source] ?? [];
   const modes = promptUi.modes?.length ? promptUi.modes : FALLBACK_UI.modes;
   const demos = promptUi.demos?.length ? promptUi.demos : FALLBACK_UI.demos;
+
+  const runDemo = (d: PromptUi["demos"][number]) => {
+    loadDemo(d);
+    void runBrief(d.goal || d.question, {
+      source: d.source,
+      mode: d.mode,
+      repo: d.repo || null,
+      repoB: d.repoB || null,
+      url: d.url || null,
+      goal: d.goal || d.question,
+      packageName: d.packageName || null,
+      packageRegistry: d.packageRegistry,
+      tagA: d.tagA || null,
+      tagB: d.tagB || null,
+    });
+  };
+
+  const applySaved = (s: SavedBrief) => {
+    setSource(s.source);
+    setMode(s.mode);
+    setRepoInput(s.repo || (s.source === "github" ? s.label : ""));
+    setRepoBInput(s.repoB || "");
+    setUrlInput(s.url || (s.source === "url" ? s.label : ""));
+    if (s.goal) setGoalInput(s.goal);
+    if (s.packageRegistry) setPackageRegistry(s.packageRegistry);
+    if (s.packageName) setPackageInput(s.packageName);
+    if (s.tagA) setTagA(s.tagA);
+    if (s.tagB) setTagB(s.tagB);
+  };
   const defaultQ = { ...FALLBACK_UI.defaultQuestions, ...promptUi.defaultQuestions };
 
   const startQuestion =
@@ -1441,196 +1261,38 @@ function DeskPage() {
             filename={`brief-${source}-${Date.now()}`}
           />
 
-          <p className="section-label">Source</p>
-          <div className="source-grid">
-            {(
-              [
-                ["auto", "Auto"],
-                ["trending", "Trending"],
-                ["package", "Package"],
-                ["releases", "Releases"],
-                ["github", "GitHub"],
-                ["url", "Docs"],
-                ["compare", "Compare"],
-                ["corpus", "Corpus"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className={`chip${source === id ? " active" : ""}${id === "auto" ? " span-all" : ""}`}
-                onClick={() => setSource(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {source === "trending" ? (
-            <>
-              <p className="section-label">Language</p>
-              <select
-                className="field field-select"
-                value={languageInput}
-                onChange={(e) => setLanguageInput(e.target.value)}
-                aria-label="Trending language"
-              >
-                {TRENDING_LANGUAGES.map((opt) => (
-                  <option key={opt.value || "any"} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <p className="section-label">Window</p>
-              <select
-                className="field field-select"
-                value={sinceInput}
-                onChange={(e) =>
-                  setSinceInput(e.target.value as "daily" | "weekly" | "monthly")
-                }
-                aria-label="Trending time window"
-              >
-                {TRENDING_SINCE.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <TrendingPicker
-                language={languageInput}
-                since={sinceInput}
-                seedRepos={trendingSeed}
-                disabled={mcpBlocked || pipelineBusy || isLoading}
-                onDeepBrief={deepBriefFromTrending}
-              />
-            </>
-          ) : null}
-
-          {source === "auto" ? (
-            <>
-              <p className="section-label">Goal</p>
-              <textarea
-                className="field"
-                style={{ minHeight: 80, resize: "vertical", lineHeight: 1.4 }}
-                value={goalInput}
-                onChange={(e) => setGoalInput(e.target.value)}
-                placeholder="Include owner/name or https://…"
-              />
-            </>
-          ) : null}
-
-          {source === "package" ? (
-            <>
-              <p className="section-label">Registry</p>
-              <select
-                className="field field-select"
-                value={packageRegistry}
-                onChange={(e) => setPackageRegistry(e.target.value as PackageRegistry)}
-                aria-label="Package registry"
-              >
-                {PACKAGE_REGISTRIES.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <p className="section-label">Package name</p>
-              <input
-                className="field"
-                value={packageInput}
-                onChange={(e) => setPackageInput(e.target.value)}
-                placeholder={packageRegistry === "npm" ? "zod or @scope/name" : "httpx"}
-                spellCheck={false}
-                aria-label="Package name"
-              />
-            </>
-          ) : null}
-
-          {source !== "auto" &&
-          source !== "compare" &&
-          source !== "corpus" &&
-          source !== "trending" &&
-          source !== "package" &&
-          source !== "releases" ? (
-            <>
-              <p className="section-label">Brief type</p>
-              <select
-                className="field field-select"
-                value={mode}
-                onChange={(e) => setMode(e.target.value as BriefMode)}
-                aria-label="Brief type"
-              >
-                {modes.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </>
-          ) : null}
-
-          {source === "github" ||
-          source === "url" ||
-          source === "compare" ||
-          source === "releases" ? (
-            <RepoCombobox
-              label={
-                source === "compare" ? "Repo A" : source === "releases" ? "GitHub repo" : "GitHub repo"
-              }
-              value={repoInput}
-              onChange={(v) => {
-                setRepoInput(v);
-                if (source === "releases") {
-                  setTagA("");
-                  setTagB("");
-                }
-              }}
-              savedRepos={saved
-                .map((s) => s.repo)
-                .filter((r): r is string => Boolean(r))}
-            />
-          ) : null}
-
-          {source === "releases" ? (
-            <ReleaseDiffPanel
-              repo={repo}
-              tagA={tagA}
-              tagB={tagB}
-              onTagA={setTagA}
-              onTagB={setTagB}
-              disabled={mcpBlocked || pipelineBusy || isLoading}
-            />
-          ) : null}
-
-          {source === "compare" ? (
-            <RepoCombobox
-              label="Repo B"
-              value={repoBInput}
-              onChange={setRepoBInput}
-              savedRepos={saved
-                .flatMap((s) => [s.repo, s.repoB])
-                .filter((r): r is string => Boolean(r))}
-            />
-          ) : null}
-
-          {source === "url" ? (
-            <>
-              <p className="section-label">Docs URL</p>
-              <input
-                className="field"
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="https://…"
-                spellCheck={false}
-              />
-            </>
-          ) : null}
-
-          {source === "corpus" ? (
-            <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--muted)", lineHeight: 1.4 }}>
-              Bundled sample docs in this repo (<code>mcp/corpus</code>).
-            </p>
-          ) : null}
+          <SourceFields
+            source={source}
+            setSource={setSource}
+            disabled={mcpBlocked || pipelineBusy || isLoading}
+            modes={modes}
+            mode={mode}
+            setMode={setMode}
+            goalInput={goalInput}
+            setGoalInput={setGoalInput}
+            languageInput={languageInput}
+            setLanguageInput={setLanguageInput}
+            sinceInput={sinceInput}
+            setSinceInput={setSinceInput}
+            trendingSeed={trendingSeed}
+            onDeepBrief={deepBriefFromTrending}
+            packageRegistry={packageRegistry}
+            setPackageRegistry={setPackageRegistry}
+            packageInput={packageInput}
+            setPackageInput={setPackageInput}
+            repoInput={repoInput}
+            setRepoInput={setRepoInput}
+            repo={repo}
+            repoBInput={repoBInput}
+            setRepoBInput={setRepoBInput}
+            tagA={tagA}
+            setTagA={setTagA}
+            tagB={tagB}
+            setTagB={setTagB}
+            urlInput={urlInput}
+            setUrlInput={setUrlInput}
+            saved={saved}
+          />
 
           <div className="query-panel">
             <p className="section-label">Queries</p>
@@ -1752,69 +1414,13 @@ function DeskPage() {
             onCopy={(md) => void copyMarkdown(md)}
           />
 
-          <p className="section-label" style={{ marginTop: 18 }}>
-            Demos
-          </p>
-          <div className="demo-list">
-            {demos.map((d) => (
-              <button
-                key={d.label}
-                type="button"
-                className="chip"
-                disabled={mcpBlocked || pipelineBusy}
-                onClick={() => {
-                  loadDemo(d);
-                  void runBrief(d.goal || d.question, {
-                    source: d.source,
-                    mode: d.mode,
-                    repo: d.repo || null,
-                    repoB: d.repoB || null,
-                    url: d.url || null,
-                    goal: d.goal || d.question,
-                    packageName: d.packageName || null,
-                    packageRegistry: d.packageRegistry,
-                    tagA: d.tagA || null,
-                    tagB: d.tagB || null,
-                  });
-                }}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-
-          {saved.length ? (
-            <>
-              <p className="section-label">Saved</p>
-              <div className="demo-list">
-                {saved.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className="chip"
-                    style={{
-                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                      fontSize: 11,
-                    }}
-                    onClick={() => {
-                      setSource(s.source);
-                      setMode(s.mode);
-                      setRepoInput(s.repo || (s.source === "github" ? s.label : ""));
-                      setRepoBInput(s.repoB || "");
-                      setUrlInput(s.url || (s.source === "url" ? s.label : ""));
-                      if (s.goal) setGoalInput(s.goal);
-                      if (s.packageRegistry) setPackageRegistry(s.packageRegistry);
-                      if (s.packageName) setPackageInput(s.packageName);
-                      if (s.tagA) setTagA(s.tagA);
-                      if (s.tagB) setTagB(s.tagB);
-                    }}
-                  >
-                    {s.source} · {s.label}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : null}
+          <ShortcutLists
+            demos={demos}
+            saved={saved}
+            demosDisabled={mcpBlocked || pipelineBusy}
+            onDemo={runDemo}
+            onSaved={applySaved}
+          />
         </aside>
 
         <section className="desk-main" id="brief-main" tabIndex={-1} aria-label="Brief chat">
