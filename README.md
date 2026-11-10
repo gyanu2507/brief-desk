@@ -45,7 +45,7 @@ cp .env.example .env.local
 # OPENAI_API_KEY = Groq key (https://console.groq.com)
 npm install
 # Python MCP (uv installs deps from backend/pyproject.toml)
-cd backend && uv sync && cd ..
+cd backend && uv sync --extra dev && cd ..
 ```
 
 Requires [uv](https://github.com/astral-sh/uv) and Python 3.11+. See [CONTRIBUTING.md](./CONTRIBUTING.md).

@@ -9,7 +9,7 @@ cd brief-desk
 cp .env.example .env.local
 # Set OPENAI_API_KEY (Groq) and optional GITHUB_TOKEN
 npm install
-cd backend && uv sync && cd ..
+cd backend && uv sync --extra dev && cd ..
 npm run dev
 ```
 
