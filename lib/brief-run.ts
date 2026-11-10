@@ -117,6 +117,10 @@ function resolveModelId(): string {
   return MODEL_ALIASES[id] ?? id;
 }
 
+export function isReasoningModel(model: string): boolean {
+  return /(^|\/)gpt-oss-/i.test(model);
+}
+
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   throwIfAborted(signal);
   return new Promise((resolve, reject) => {
@@ -202,6 +206,9 @@ async function draftWithGroq(
     // Keep OTPM headroom on Groq free tier.
     max_tokens: 550,
     temperature: 0.2,
+    // gpt-oss models spend hidden reasoning tokens out of max_tokens. At the
+    // default effort they can use all 550 and return empty content.
+    ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
   };
 
   let lastErr = "draft failed";
@@ -224,7 +231,7 @@ async function draftWithGroq(
       clear();
     }
     const body = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
       error?: { message?: string };
     };
     const ms = Date.now() - t0;
@@ -234,7 +241,14 @@ async function draftWithGroq(
     obs.modelUsage.ms += ms;
     if (res.ok) {
       const content = body.choices?.[0]?.message?.content?.trim();
-      if (!content) throw new Error("draft model returned empty content");
+      if (!content) {
+        const finish = body.choices?.[0]?.finish_reason;
+        throw new Error(
+          finish === "length"
+            ? `draft model ${model} used its whole token budget before writing any content`
+            : "draft model returned empty content",
+        );
+      }
       obs.modelUsage.completionChars += content.length;
       logRunEvent("model_draft", {
         runId: obs.runId,

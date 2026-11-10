@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { runBriefPipeline } from "./brief-run";
+import { isReasoningModel, runBriefPipeline } from "./brief-run";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 3128;
@@ -77,3 +77,10 @@ test(
     }
   },
 );
+
+test("isReasoningModel flags gpt-oss ids with or without the vendor prefix", () => {
+  assert.equal(isReasoningModel("openai/gpt-oss-20b"), true);
+  assert.equal(isReasoningModel("gpt-oss-120b"), true);
+  assert.equal(isReasoningModel("qwen/qwen3.8-27b"), false);
+  assert.equal(isReasoningModel("llama-3.3-70b-versatile"), false);
+});
