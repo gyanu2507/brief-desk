@@ -5,7 +5,7 @@ import {
   throwIfAborted,
   withTimeout,
 } from "./abort";
-import { callMcpTool } from "./mcp-client";
+import { callMcpTool, waitForMcp } from "./mcp-client";
 import { fetchGithubTrending, isMcpToolMissing } from "./github-trending";
 import {
   actionableErrorMessage,
@@ -116,6 +116,9 @@ function resolveModelId(): string {
   const id = raw.replace(/^openai[:/]/i, "");
   return MODEL_ALIASES[id] ?? id;
 }
+
+/** Busy-note label while a sleeping MCP backend boots. */
+export const WAKING_STEP = "waking backend (free tier, up to a minute)";
 
 export function isReasoningModel(model: string): boolean {
   return /(^|\/)gpt-oss-/i.test(model);
@@ -321,6 +324,24 @@ export async function runBriefPipeline(
   let evidence = "";
   try {
     throwIfAborted(signal);
+
+    const wake = await waitForMcp({
+      signal,
+      onWaking: () => {
+        // Shown as the busy note. Not pushed into steps, which list real tools.
+        onStep?.(WAKING_STEP, [WAKING_STEP]);
+        logRunEvent("mcp_wake_start", { runId });
+      },
+    });
+    if (wake.waited) {
+      obs.toolTimings.push({ tool: "mcp_wake", ms: wake.ms, ok: wake.ok, error: wake.error });
+      logRunEvent("mcp_wake_done", { runId, ms: wake.ms, ok: wake.ok, error: wake.error });
+    }
+    if (!wake.ok) {
+      throw new Error(
+        `MCP backend did not wake up within ${Math.round(wake.ms / 1000)} s (${wake.error}).`,
+      );
+    }
 
     if (input.source === "auto") {
       pushStep(steps, "brief_auto", onStep);

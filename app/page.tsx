@@ -70,6 +70,7 @@ import {
   pushRemoteHistory,
   pushRemoteSaved,
 } from "../lib/sync-api";
+import { mcpStatusMessage } from "../lib/mcp-status";
 import { mergeByIdAt } from "../lib/sync-merge";
 import { renderTemplate } from "../lib/template";
 import type { BriefMode, PackageRegistry, PromptUi, SourceKind } from "../lib/types";
@@ -295,6 +296,7 @@ function DeskPage() {
   const prevChatLoading = useRef(false);
   const lastChatHistoryKey = useRef("");
   const [mcpOk, setMcpOk] = useState<boolean | null>(null);
+  const [mcpSlow, setMcpSlow] = useState(false);
   const [mcpVersion, setMcpVersion] = useState<string>("");
   const [mcpTools, setMcpTools] = useState<string[]>([]);
   const [busyNote, setBusyNote] = useState<string | null>(null);
@@ -704,7 +706,14 @@ function DeskPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let timer: number | undefined;
+    // The free-tier backend can take up to a minute to wake. If the first
+    // health check is still pending after a few seconds, say so.
+    const slowTimer = window.setTimeout(() => {
+      if (!cancelled) setMcpSlow(true);
+    }, 3_000);
     const ping = async () => {
+      let ok = false;
       try {
         const res = await fetch("/api/mcp-health", { cache: "no-store" });
         const body = (await res.json()) as {
@@ -712,8 +721,9 @@ function DeskPage() {
           version?: string;
           tools?: string[];
         };
+        ok = Boolean(body.ok);
         if (!cancelled) {
-          setMcpOk(Boolean(body.ok));
+          setMcpOk(ok);
           setMcpVersion(typeof body.version === "string" ? body.version : "");
           setMcpTools(Array.isArray(body.tools) ? body.tools : []);
         }
@@ -723,12 +733,16 @@ function DeskPage() {
           setMcpTools([]);
         }
       }
+      if (cancelled) return;
+      if (ok) setMcpSlow(false);
+      // Check often while the backend is down, rarely once it's up.
+      timer = window.setTimeout(ping, ok ? 20_000 : 5_000);
     };
     void ping();
-    const id = window.setInterval(ping, 20_000);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      window.clearTimeout(slowTimer);
+      if (timer !== undefined) window.clearTimeout(timer);
     };
   }, []);
 
@@ -796,6 +810,7 @@ function DeskPage() {
   const mcpReady = mcpOk === true && hasOrchestrate;
   // Keep controls usable while the first health ping is in flight.
   const mcpBlocked = mcpOk === false || (mcpOk === true && !hasOrchestrate);
+  const mcpStatusNote = mcpStatusMessage(mcpOk, hasOrchestrate, mcpSlow);
   const mcpVersionWarn =
     mcpOk === true && source === "trending" && !hasTrendingTool
       ? `MCP v${mcpVersion || "?"} is missing brief_github_trending. Redeploy Render (Dockerfile) to 0.10.0+.`
@@ -941,7 +956,8 @@ function DeskPage() {
       if (isLoading || pipelineBusy) return;
       if (mcpOk !== true || !hasOrchestrate) {
         const detail =
-          "MCP is offline or missing brief_orchestrate. Redeploy Render, then retry.";
+          mcpStatusMessage(mcpOk, hasOrchestrate, true) ??
+          "The backend isn't ready yet. Try again in a moment.";
         setRunError(detail);
         window.dispatchEvent(new CustomEvent("brief-desk-error", { detail }));
         return;
@@ -1391,6 +1407,11 @@ function DeskPage() {
             brief with citations.
           </p>
 
+          {mcpStatusNote ? (
+            <p className="mcp-warn" role="status" aria-live="polite">
+              {mcpStatusNote}
+            </p>
+          ) : null}
           {mcpVersionWarn ? (
             <p className="mcp-warn" role="status">
               {mcpVersionWarn}
